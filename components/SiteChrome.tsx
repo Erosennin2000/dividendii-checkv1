@@ -4,7 +4,7 @@ import { SITE } from "@/lib/site";
 // Plain <a> links on purpose: these point at the main site, outside this app's /check base path.
 const wa = SITE.whatsapp + "?text=" + encodeURIComponent("Hello Dividendii, I would like to check for unclaimed dividends.");
 
-export function SiteHeader({ active = "check" }: { active?: "check" | "none" }) {
+export function SiteHeader({ active = "check" }: { active?: "check" | "account" | "none" }) {
   return (
     <>
       <div className="sx-notice"><div className="sx-wrap">
@@ -20,6 +20,7 @@ export function SiteHeader({ active = "check" }: { active?: "check" | "none" }) 
           <a href="/safety">Safety</a>
           <a href="/learn">Learn</a>
         </nav>
+        <a className="sx-account" href="/check/account" aria-current={active === "account" ? "page" : undefined}>My account</a>
         <a className="sx-cta" href={wa} target="_blank" rel="noopener noreferrer">Chat with us</a>
       </div></header>
     </>

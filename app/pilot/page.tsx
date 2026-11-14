@@ -400,6 +400,10 @@ function Done({ r, email, first, rate, perCompany }: { r: Result; email: string;
           <li>Any dividend is paid by the registrar straight into your account.</li>
         </ol>
         {r.byHand.length > 0 && <p className="tiny" style={{ marginTop: 16 }}>Not printed on the registrar&apos;s form, so we listed them in the email for the registrar to add: {r.byHand.join(", ")}.</p>}
+        <div className="acct-msg" style={{ marginTop: 16 }}>
+          <span><b>Your account is ready.</b> Follow each registrar&apos;s progress and look around the investing demo.</span>
+          <a className="btn gold sm" href={withBase("/account")}>Go to my account</a>
+        </div>
         {r.mode === "test" && <p className="tiny"><b>Test mode:</b> the registrar emails went to our test inbox, not the registrar.</p>}
       </section>
     </div>

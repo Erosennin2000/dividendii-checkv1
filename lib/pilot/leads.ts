@@ -47,9 +47,10 @@ export async function startLead(input: StartInput, deps: { store: PilotStore; ma
   const prev = await deps.store.getLead(id);
   const code = otpMode() === "demo" ? DEMO_CODE : String(randomInt(100000, 1000000));
   const lead: PilotLead = {
+    ...(prev ?? {}), // keeps the account: password, sessions, waitlist
     id, email: input.email, firstName: input.firstName, surname: input.surname, otherNames: input.otherNames, variants: input.variants,
     chn: input.chn, createdAt: prev?.createdAt ?? now.toISOString(), updatedAt: now.toISOString(),
-    verifiedAt: null, codeHash: hash(code, id), codeExpires: new Date(now.getTime() + CODE_TTL_MS).toISOString(), attempts: 0,
+    verifiedAt: prev?.verifiedAt ?? null, codeHash: hash(code, id), codeExpires: new Date(now.getTime() + CODE_TTL_MS).toISOString(), attempts: 0,
     submittedRef: prev?.submittedRef ?? null,
   };
   await deps.store.saveLead(lead);
@@ -82,4 +83,4 @@ export async function verifyLead(leadId: string, code: string, deps: { store: Pi
   return { token: signToken(lead.id, lead.email, now.getTime()), email: lead.email };
 }
 
-export const leadView = ({ codeHash: _h, codeExpires: _e, attempts: _a, ...rest }: PilotLead): PilotLeadView => rest; // eslint-disable-line @typescript-eslint/no-unused-vars
+export const leadView = ({ codeHash: _h, codeExpires: _e, attempts: _a, passwordHash, sessionVersion: _v, ...rest }: PilotLead): PilotLeadView => ({ ...rest, hasPassword: !!passwordHash }); // eslint-disable-line @typescript-eslint/no-unused-vars

@@ -2,7 +2,7 @@ import { withBase } from "@/lib/base";
 import { auth } from "@/lib/auth";
 import { saveBlob } from "@/lib/forms/client";
 import type { PilotSettings } from "./settingsShared";
-import type { PilotLeadView, PilotSubmission } from "./types";
+import type { PilotFeedback, PilotLeadView, PilotSubmission } from "./types";
 
 const KEY = "dividendii-admin-token";
 export const adminToken = {
@@ -36,7 +36,7 @@ export async function listSubmissions(): Promise<PilotSubmission[]> {
   return (await (await authed("/api/pilot/submissions")).json()).submissions;
 }
 
-export async function actOnSubmission(id: string, body: { action: "resend" | "chase" | "markPaid" | "markUnpaid" | "note" | "sendPayLink" | "requestSuccessFee" | "markSuccessPaid"; registrarId?: string; note?: string; message?: string; amount?: number | string }): Promise<PilotSubmission> {
+export async function actOnSubmission(id: string, body: { action: "resend" | "chase" | "markPaid" | "markUnpaid" | "note" | "sendPayLink" | "requestSuccessFee" | "markSuccessPaid" | "addProgress" | "removeProgress" | "customerMessage"; registrarId?: string; note?: string; message?: string; amount?: number | string; status?: string; index?: number }): Promise<PilotSubmission> {
   const res = await authed(`/api/pilot/submissions/${id}`, { method: "POST", body: JSON.stringify(body) });
   return (await res.json()).submission;
 }
@@ -67,14 +67,25 @@ export function submissionsCsv(list: PilotSubmission[]): string {
   return [head, ...rows].map((r) => r.map(q).join(",")).join("\n");
 }
 
+export async function listFeedback(): Promise<PilotFeedback[]> {
+  return (await (await authed("/api/pilot/feedback")).json()).feedback;
+}
+export async function markFeedback(id: string, read: boolean): Promise<PilotFeedback> {
+  return (await (await authed("/api/pilot/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, read }) })).json()).feedback;
+}
+export function feedbackCsv(list: PilotFeedback[]): string {
+  const head = ["Received", "Name", "Email", "Where", "Rating (1-5)", "Message", "Read"];
+  return [head, ...list.map((f) => [f.at, f.name, f.email, f.page, f.rating ?? "", f.message, f.readAt ?? ""])].map((r) => r.map(q).join(",")).join("\n");
+}
+
 export async function listLeads(): Promise<PilotLeadView[]> {
   return (await (await authed("/api/pilot/leads")).json()).leads;
 }
 
 /** Everyone who started, finished or not, for follow-up. */
 export function leadsCsv(list: PilotLeadView[]): string {
-  const head = ["Email", "First name", "Surname", "Other names", "Other spellings", "CHN or CSCS", "Started", "Last activity", "Email confirmed", "Sent forms (reference)"];
-  const rows = list.map((l) => [l.email, l.firstName, l.surname, l.otherNames, l.variants.join("; "), l.chn, l.createdAt, l.updatedAt, l.verifiedAt ?? "", l.submittedRef ?? ""]);
+  const head = ["Email", "First name", "Surname", "Other names", "Other spellings", "CHN or CSCS", "Started", "Last activity", "Email confirmed", "Sent forms (reference)", "Password set", "Last sign-in", "Investing waitlist"];
+  const rows = list.map((l) => [l.email, l.firstName, l.surname, l.otherNames, l.variants.join("; "), l.chn, l.createdAt, l.updatedAt, l.verifiedAt ?? "", l.submittedRef ?? "", l.passwordSetAt ?? "", l.lastSignInAt ?? "", l.investWaitlistAt ?? ""]);
   return [head, ...rows].map((r) => r.map(q).join(",")).join("\n");
 }
 

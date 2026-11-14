@@ -82,6 +82,10 @@ export default function PaidPage() {
         <li>We follow up until each claim is paid or closed, and tell you when anything changes.</li>
         <li>Any dividend is paid by the registrar straight into your account. We then write to you about the success fee.</li>
       </ol>
+      <div className="acct-msg" style={{ marginTop: 16 }}>
+        <span><b>Your account is ready.</b> Follow each registrar&apos;s progress, look around the investing demo and send us feedback.</span>
+        <a className="btn gold sm" href={withBase("/account")}>Go to my account</a>
+      </div>
       {out.mode === "test" && <p className="tiny"><b>Test mode:</b> the registrar emails went to our test inbox, not the registrar.</p>}
     </section></div>
   );

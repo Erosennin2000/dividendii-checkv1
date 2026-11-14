@@ -4,7 +4,8 @@ import { withBase } from "@/lib/base";
 import { nairaExact } from "@/lib/site";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { naira } from "@/lib/domain/fees";
-import { actOnSubmission, adminSignIn, adminToken, downloadFile, fileUrl, leadsCsv, listLeads, listSubmissions, SignedOut, submissionsCsv } from "@/lib/pilot/client";
+import { actOnSubmission, adminSignIn, adminToken, downloadFile, feedbackCsv, fileUrl, leadsCsv, listFeedback, listLeads, listSubmissions, markFeedback, SignedOut, submissionsCsv } from "@/lib/pilot/client";
+import { PROGRESS_LABEL, type PilotFeedback, type ProgressStatus } from "@/lib/pilot/types";
 import { PILOT_REGISTRARS } from "@/lib/pilot/config";
 import type { PilotLeadView, PilotSubmission } from "@/lib/pilot/types";
 import { saveBlob } from "@/lib/forms/client";
@@ -101,7 +102,10 @@ function Preview({ sub, registrarId, onClose, onChase, busy }: {
 export default function PilotAdmin() {
   const [subs, setSubs] = useState<PilotSubmission[] | null>(null);
   const [leads, setLeads] = useState<PilotLeadView[]>([]);
-  const [tab, setTab] = useState<"subs" | "leads">("subs");
+  const [tab, setTab] = useState<"subs" | "leads" | "feedback">("subs");
+  const [feedback, setFeedback] = useState<PilotFeedback[]>([]);
+  const [prog, setProg] = useState<{ registrarId: string; status: ProgressStatus | ""; note: string }>({ registrarId: "", status: "", note: "" });
+  const [cmsg, setCmsg] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -111,8 +115,8 @@ export default function PilotAdmin() {
 
   const [signedOut, setSignedOut] = useState(false);
   const [preview, setPreview] = useState<{ id: string; registrarId: string } | null>(null);
-  const load = useCallback(() => Promise.all([listSubmissions(), listLeads()])
-    .then(([s, l]) => { setSubs(s); setLeads(l); setSignedOut(false); setError(null); })
+  const load = useCallback(() => Promise.all([listSubmissions(), listLeads(), listFeedback().catch(() => [] as PilotFeedback[])])
+    .then(([s, l, f]) => { setSubs(s); setLeads(l); setFeedback(f); setSignedOut(false); setError(null); })
     .catch((e) => { if (e instanceof SignedOut) setSignedOut(true); else setError(errorMessage(e)); }), []);
   useEffect(() => { void load(); }, [load]);
   // New submissions appear on their own.
@@ -155,7 +159,9 @@ export default function PilotAdmin() {
         </div>
         <div className="row" style={{ gap: 8 }}>
         <a className="btn ghost sm" href={withBase("/admin/settings")}>Settings</a>
-        <button className="btn ghost sm" onClick={() => tab === "leads"
+        <button className="btn ghost sm" onClick={() => tab === "feedback"
+          ? saveBlob(new Blob([feedbackCsv(feedback)], { type: "text/csv" }), "dividendii-feedback.csv")
+          : tab === "leads"
           ? saveBlob(new Blob([leadsCsv(shownLeads)], { type: "text/csv" }), "dividendii-leads.csv")
           : saveBlob(new Blob([submissionsCsv(shown)], { type: "text/csv" }), "dividendii-submissions.csv")}>Export CSV</button>
         </div>
@@ -167,13 +173,15 @@ export default function PilotAdmin() {
         <div className="stat-card"><div className="k">{count((s) => s.sendStatus === "sent")}</div><div className="v">Fully sent</div></div>
         <div className="stat-card"><div className="k">{count((s) => s.sendStatus !== "sent")}</div><div className="v">Not fully sent</div></div>
         <div className="stat-card"><div className="k">{count((s) => s.payment.status === "awaiting_payment")}</div><div className="v">Awaiting payment</div></div>
+        <div className="stat-card"><div className="k">{leads.filter((l) => l.investWaitlistAt).length}</div><div className="v">Investing waitlist</div></div>
         <div className="stat-card"><div className="k">{all.reduce((n, s) => n + s.holdings.length, 0)}</div><div className="v">Companies</div></div>
       </div>
 
       {error && <div className="field-error" style={{ marginBottom: 12 }}>{error}</div>}
       <div className="tabs" role="tablist" style={{ marginBottom: 16 }}>
         <button className="tab" role="tab" aria-selected={tab === "subs"} onClick={() => setTab("subs")}>Submissions ({all.length})</button>
-        <button className="tab" role="tab" aria-selected={tab === "leads"} onClick={() => setTab("leads")}>Leads ({leads.length})</button>
+        <button className="tab" role="tab" aria-selected={tab === "leads"} onClick={() => setTab("leads")}>Leads and accounts ({leads.length})</button>
+        <button className="tab" role="tab" aria-selected={tab === "feedback"} onClick={() => setTab("feedback")}>Feedback ({feedback.filter((f) => !f.readAt).length} new)</button>
       </div>
       <input className="input" placeholder="Search name, email, CHN, phone, reference or company" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginBottom: 16 }} />
 
@@ -182,7 +190,7 @@ export default function PilotAdmin() {
           {shownLeads.length === 0 ? <p className="tiny">{leads.length ? "No match." : "Nobody has started yet."}</p> : (
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
               <thead><tr style={{ textAlign: "left", color: "var(--ink-3)" }}>
-                {["Name", "Email", "CHN / CSCS", "Last activity", "Email confirmed", "Sent forms"].map((h) => <th key={h} style={{ padding: "6px 10px", fontWeight: 500 }}>{h}</th>)}
+                {["Name", "Email", "CHN / CSCS", "Last activity", "Email confirmed", "Sent forms", "Password", "Investing waitlist"].map((h) => <th key={h} style={{ padding: "6px 10px", fontWeight: 500 }}>{h}</th>)}
               </tr></thead>
               <tbody>{shownLeads.map((l) => (
                 <tr key={l.id} style={{ borderTop: "1px solid var(--rule)" }}>
@@ -192,6 +200,8 @@ export default function PilotAdmin() {
                   <td style={{ padding: "8px 10px" }}>{when(l.updatedAt)}</td>
                   <td style={{ padding: "8px 10px" }}><span className={`tag ${l.verifiedAt ? "teal" : ""}`}>{l.verifiedAt ? "Yes" : "No"}</span></td>
                   <td style={{ padding: "8px 10px" }}>{l.submittedRef ? <span className="tag teal">{l.submittedRef}</span> : <span className="tag">Not yet</span>}</td>
+                  <td style={{ padding: "8px 10px" }}>{l.hasPassword ? <span className="tag teal">Set</span> : <span className="tag">Not yet</span>}{l.lastSignInAt && <div className="tiny">Last in {when(l.lastSignInAt)}</div>}</td>
+                  <td style={{ padding: "8px 10px" }}>{l.investWaitlistAt ? <span className="tag gold">Joined {when(l.investWaitlistAt)}</span> : ""}</td>
                 </tr>
               ))}</tbody>
             </table>
@@ -199,11 +209,35 @@ export default function PilotAdmin() {
         </div>
       )}
 
+      {tab === "feedback" && (
+        <div className="stack">
+          {feedback.length === 0 && <div className="card"><p className="tiny">No feedback yet. Account holders send it from the Feedback tab in their account.</p></div>}
+          {feedback.filter((f) => { const t = q.trim().toLowerCase(); return !t || [f.name, f.email, f.message].join(" ").toLowerCase().includes(t); }).map((f) => (
+            <div key={f.id} className="card" style={{ borderColor: f.readAt ? undefined : "var(--gold)" }}>
+              <div className="row-between">
+                <b>{f.name} <span className="tiny" style={{ fontWeight: 400 }}>{f.email}</span></b>
+                <span className="tiny">{when(f.at)} &middot; {f.page === "demo" ? "from the investing demo" : "from their account"}</span>
+              </div>
+              {f.rating != null && <div className="tiny" style={{ marginTop: 4 }}>Rating: <b>{f.rating} of 5</b></div>}
+              <p style={{ whiteSpace: "pre-wrap", margin: "8px 0", maxWidth: "none" }}>{f.message}</p>
+              <div className="btn-row">
+                <a className="btn ghost sm" href={`mailto:${f.email}?subject=${encodeURIComponent("Your feedback to Dividendii")}`}>Reply by email</a>
+                <button className="btn quiet sm" disabled={busy === `fb-${f.id}`} onClick={async () => {
+                  setBusy(`fb-${f.id}`);
+                  try { const u = await markFeedback(f.id, !f.readAt); setFeedback((all) => all.map((x) => (x.id === u.id ? u : x))); } catch (e) { setError(errorMessage(e)); }
+                  setBusy(null);
+                }}>{f.readAt ? "Mark as unread" : "Mark as read"}</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {tab === "subs" && <div className="two-col wide">
         <div className="stack">
           {shown.length === 0 && <div className="card"><p className="tiny">{all.length ? "No match." : "No submissions yet."}</p></div>}
           {shown.map((s) => (
-            <button key={s.id} type="button" className="card" onClick={() => { setOpen(s.id); setNote(s.note); }}
+            <button key={s.id} type="button" className="card" onClick={() => { setOpen(s.id); setNote(s.note); setCmsg(s.customerMessage ?? ""); setProg({ registrarId: "", status: "", note: "" }); }}
               style={{ textAlign: "left", cursor: "pointer", padding: "12px 16px", boxShadow: open === s.id ? "0 0 0 2px var(--navy)" : undefined }}>
               <div className="row-between">
                 <b>{s.profile.firstName} {s.profile.surname}</b>
@@ -255,6 +289,39 @@ export default function PilotAdmin() {
                   </div>
                 );
               })}
+
+              <div className="card" style={{ background: "var(--surface-2)", border: 0 }}>
+                <h4 style={{ margin: "0 0 6px" }}>Progress the customer sees</h4>
+                <p className="tiny">Saved, paid and sent show by themselves. Add what the registrar tells you; it appears in their account at once.</p>
+                {(sel.progress ?? []).length > 0 && (
+                  <ol className="tiny" style={{ margin: "6px 0 10px", paddingLeft: 18 }}>
+                    {(sel.progress ?? []).map((p, i) => (
+                      <li key={i} style={{ marginBottom: 4 }}>
+                        <b>{PILOT_REGISTRARS.find((r) => r.id === p.registrarId)?.name.split(" ")[0]}</b>: {PROGRESS_LABEL[p.status]} &middot; {when(p.at)}{p.note ? ` · “${p.note}”` : ""}{" "}
+                        <button className="btn quiet sm" style={{ minHeight: 24, padding: "0 8px" }} disabled={busy === `rp-${i}`} onClick={() => { if (window.confirm("Remove this update? The customer will no longer see it.")) void run(sel.id, { action: "removeProgress", index: i }, `rp-${i}`); }}>Remove</button>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+                <div className="field-row">
+                  <div className="field"><label htmlFor="pr-reg">Registrar</label>
+                    <select id="pr-reg" className="input" value={prog.registrarId} onChange={(e) => setProg({ ...prog, registrarId: e.target.value })}>
+                      <option value="">Choose</option>
+                      {[...new Set(sel.holdings.map((h) => h.registrarId))].map((rid) => <option key={rid} value={rid}>{PILOT_REGISTRARS.find((r) => r.id === rid)?.name}</option>)}
+                    </select></div>
+                  <div className="field"><label htmlFor="pr-st">What happened</label>
+                    <select id="pr-st" className="input" value={prog.status} onChange={(e) => setProg({ ...prog, status: e.target.value as ProgressStatus })}>
+                      <option value="">Choose</option>
+                      {(Object.keys(PROGRESS_LABEL) as ProgressStatus[]).map((k) => <option key={k} value={k}>{PROGRESS_LABEL[k]}</option>)}
+                    </select></div>
+                </div>
+                <div className="field"><label htmlFor="pr-note">Note for the customer (optional)</label>
+                  <input id="pr-note" className="input" value={prog.note} maxLength={500} onChange={(e) => setProg({ ...prog, note: e.target.value })} placeholder="e.g. They found ₦42,000 across two companies." /></div>
+                <button className="btn sm" disabled={!prog.registrarId || !prog.status || busy === "prog"} onClick={() => void run(sel.id, { action: "addProgress", registrarId: prog.registrarId, status: prog.status, note: prog.note }, "prog").then(() => setProg({ registrarId: prog.registrarId, status: "", note: "" }))}>{busy === "prog" ? "Saving" : "Add update"}</button>
+                <div className="field" style={{ marginTop: 12 }}><label htmlFor="cmsg2">Message at the top of their account (optional)</label>
+                  <textarea id="cmsg2" className="input" rows={2} style={{ minHeight: 56 }} maxLength={600} value={cmsg} onChange={(e) => setCmsg(e.target.value)} placeholder="e.g. We've chased Coronation twice this week." />
+                  <button className="btn ghost sm" style={{ marginTop: 6 }} disabled={busy === "cmsg" || cmsg === (sel.customerMessage ?? "")} onClick={() => void run(sel.id, { action: "customerMessage", message: cmsg }, "cmsg")}>{cmsg ? "Save message" : "Clear message"}</button></div>
+              </div>
 
               <div className="ledger">
                 <div className="row"><span className="k">Start fee</span><span className="v">{sel.payment.method === "pay_ahead" ? nairaExact(sel.payment.amountDue) : "None (older submission)"}</span></div>

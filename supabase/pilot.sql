@@ -1,4 +1,4 @@
--- Vendii pilot: tables and the private bucket for the PDFs.
+-- Dividendii check app: tables and the private bucket for the PDFs.
 -- Paste this whole file into Supabase > SQL Editor > New query > Run. Safe to run twice.
 
 create table if not exists public.pilot_submissions (
@@ -28,6 +28,16 @@ create table if not exists public.pilot_settings (
   data        jsonb not null             -- what the admin saved on the settings page
 );
 alter table public.pilot_settings enable row level security;
+
+create table if not exists public.pilot_feedback (
+  id     text primary key,
+  at     timestamptz not null,
+  email  text,
+  read   boolean not null default false,
+  data   jsonb not null                -- the message, rating, page and who sent it
+);
+create index if not exists pilot_feedback_at_idx on public.pilot_feedback (at desc);
+alter table public.pilot_feedback enable row level security;
 
 -- Lock the tables. With row level security on and no policies, the public (anon) key can read and write nothing.
 -- Only the server, using the service-role key, can touch them.

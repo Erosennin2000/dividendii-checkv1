@@ -76,11 +76,48 @@ export interface PilotSubmission {
   };
   /** The success fee: asked for by email once we believe the registrar has paid. Trust-based. */
   successFee?: SuccessFee;
+  /** Staff updates per registrar, shown to the shareholder in their account. Newest last. */
+  progress?: ProgressEntry[];
+  /** A line from staff that the shareholder sees at the top of this submission in their account. */
+  customerMessage?: string;
   consentAt: string;
   files: StoredFile[];
   emails: EmailRecord[];
   sendStatus: SendStatus;
   note: string;
+}
+
+/** Where a claim stands with one registrar, as staff record it. "sent" is automatic and never set by hand. */
+export type ProgressStatus = "replied" | "more_info" | "money_found" | "paid" | "nothing_found" | "closed";
+export const PROGRESS_LABEL: Record<ProgressStatus, string> = {
+  replied: "Registrar replied",
+  more_info: "Registrar needs more from you",
+  money_found: "Registrar confirmed money in your name",
+  paid: "Paid into your bank account",
+  nothing_found: "No unclaimed money found",
+  closed: "Closed",
+};
+export interface ProgressEntry {
+  registrarId: PilotRegistrarId;
+  status: ProgressStatus;
+  /** Shown to the shareholder. */
+  note: string;
+  at: string;
+}
+
+/** Feedback from an account holder. Staff read it on the admin page. */
+export interface PilotFeedback {
+  id: string;
+  at: string;
+  leadId: string;
+  email: string;
+  name: string;
+  /** Where they were: their account, or the investing demo. */
+  page: "account" | "demo";
+  /** 1 to 5, optional. */
+  rating: number | null;
+  message: string;
+  readAt: string | null;
 }
 
 export interface SuccessFee {
@@ -121,7 +158,15 @@ export interface PilotLead {
   attempts: number;
   /** Reference of the latest submission, once they have sent their forms. */
   submittedRef: string | null;
+  /** The account. It exists from the moment the email is confirmed; a password is added on the next visit. */
+  passwordHash?: string | null;
+  passwordSetAt?: string | null;
+  /** Bumped on every password change, which signs out every other session. */
+  sessionVersion?: number;
+  lastSignInAt?: string | null;
+  /** When they asked to hear when investing opens. */
+  investWaitlistAt?: string | null;
 }
 
-/** What staff see: the lead without its code. */
-export type PilotLeadView = Omit<PilotLead, "codeHash" | "codeExpires" | "attempts">;
+/** What staff see: the lead without its code or password. */
+export type PilotLeadView = Omit<PilotLead, "codeHash" | "codeExpires" | "attempts" | "passwordHash" | "sessionVersion"> & { hasPassword: boolean };

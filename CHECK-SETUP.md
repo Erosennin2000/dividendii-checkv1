@@ -49,6 +49,15 @@ How it works: at step 4 the app works out the start fee (₦150 per company plus
 
 **Costs**: Paystack keeps 1.5% of each local payment (plus ₦100 only on payments of ₦2,500 or more, capped at ₦2,000). On a ₦161.25 start fee that is about ₦2.42. You absorb it; the customer pays exactly the amount shown.
 
+## 6. Accounts, the investing demo and feedback
+- **Run `supabase/pilot.sql` once more** in Supabase > SQL Editor. It is safe to re-run and adds the `pilot_feedback` table. Nothing else changes.
+- **How accounts work:** there is no sign-up. Confirming the email on step 1 of the form creates the account and signs the person in for a few hours. After paying they see "Go to my account", where they can set a password at once. Next time they go to **www.dividendii.com/check/account** (or "My account" in the header), choose **Set or reset my password**, get a 6-digit code by email and choose a password. In test mode (`PILOT_OTP=demo`) no email is sent and the code is **123456**.
+- **What they see:** each check, with a timeline per registrar (completed → paid → sent → whatever you record), the fees, a message from you, and what they gave us with BVN, account, phone and CHN cut to the last four. No photo, signature or full numbers.
+- **Updating progress:** on the staff page, open a submission, use **Progress the customer sees**: pick the registrar and what happened (replied, needs more from you, money confirmed, paid, nothing found, closed), add an optional note. **Message at the top of their account** is a free line they see first. Both appear in their account straight away.
+- **Investing tab:** "Coming soon", the SEC "applied, pending" line, **Join the waitlist**, and **Look around the demo**. The demo is the existing investing app on the main site at /app, with sample data and a banner on every screen. Only signed-in account holders can open it; anyone else is sent to sign in. The staff demo console stays closed. To hide the demo, set `VITE_ACCOUNT_DEMO=false` on the main site in Vercel and redeploy.
+- **Feedback:** account holders send it from the Feedback tab (also linked from the demo banner). You read it under **Feedback** on the staff page, mark it read, reply by email, or export it as CSV. The **Leads and accounts** tab shows who has set a password and who joined the waitlist.
+- `PILOT_SECRET` also signs the account sessions. Set it before going live; changing it later signs everyone out.
+
 ## Things to know
 - Fees shown: ₦150 per company plus 7.5% VAT, paid at step 4 before the forms are sent; then 5% when they are paid. Defaults live in `lib/pilot/config.ts` and can be changed at /check/admin/settings.
 - Vercel's free Hobby plan is for non-commercial use. Once you take your first fee the app is commercial and Vercel may ask for the paid plan. That is a cost; I will not switch it on without asking you.

@@ -1,4 +1,4 @@
-import { nairaExact } from "./../site";
+import { accountUrl, nairaExact } from "./../site";
 import "server-only";
 import { naira } from "@/lib/domain/fees";
 import { pilotRegistrar } from "./config";
@@ -224,6 +224,9 @@ export function confirmationEmail(s: PilotSubmission, settings: PilotSettings = 
     ``,
     ...pay,
     ``,
+    `Follow your progress in your account: ${accountUrl()}`,
+    `The first time, choose "Set or reset my password" and use this email address.`,
+    ``,
     `Questions? Reply to this email and quote ${s.ref}.`,
     ``,
     BRAND,
@@ -234,6 +237,7 @@ export function confirmationEmail(s: PilotSubmission, settings: PilotSettings = 
     byReg.map(({ r, items }) => `<p><b>${esc(r)}</b></p><ul>${items.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>`).join("") +
     `<p><b>What happens next:</b> the registrar checks its records and replies to us. We chase them and tell you when anything changes. Any dividend is paid by the registrar straight into your account ending ${esc(s.profile.accountNumber.slice(-4))}.</p>` +
     pay.map((l) => `<p>${esc(l)}</p>`).join("") +
+    `<p><b>Follow your progress</b> in <a href="${esc(accountUrl())}">your account</a>. The first time, choose "Set or reset my password" and use this email address.</p>` +
     `<p>Questions? Reply to this email and quote ${esc(s.ref)}.</p><p>${esc(BRAND)}</p>`,
   );
   return { subject, text, html };

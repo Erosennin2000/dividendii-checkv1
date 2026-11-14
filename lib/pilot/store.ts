@@ -1,12 +1,13 @@
 import "server-only";
 import { DATA_SOURCE } from "@/lib/config";
 import type { StoredSettings } from "./settingsShared";
-import type { PilotLead, PilotSubmission } from "./types";
+import type { PilotFeedback, PilotLead, PilotSubmission } from "./types";
 
 export const PILOT_COLLECTION = "pilotSubmissions";
 export const LEADS_COLLECTION = "pilotLeads";
 export const SETTINGS_COLLECTION = "pilotSettings";
 export const SETTINGS_DOC = "main";
+export const FEEDBACK_COLLECTION = "pilotFeedback";
 
 export interface PilotStore {
   /** Writes the record and its files together. The record is saved before any email goes out. */
@@ -15,6 +16,11 @@ export interface PilotStore {
   get(id: string): Promise<PilotSubmission | null>;
   /** Newest first. */
   list(limit?: number): Promise<PilotSubmission[]>;
+  /** One person's submissions, newest first. */
+  listByEmail(email: string): Promise<PilotSubmission[]>;
+  saveFeedback(f: PilotFeedback): Promise<void>;
+  /** Newest first. */
+  listFeedback(limit?: number): Promise<PilotFeedback[]>;
   readFile(path: string): Promise<Uint8Array>;
   /** Insert or replace a lead (one per email). */
   saveLead(lead: PilotLead): Promise<void>;
@@ -31,8 +37,10 @@ const plain = <T>(v: T): T => JSON.parse(JSON.stringify(v)); // Firestore reject
 /** Local dev with no Firebase: lives in the server process, gone on restart. */
 export function memoryStore(): PilotStore {
   const g = globalThis as unknown as { __pilotMem?: { subs: Map<string, PilotSubmission>; files: Map<string, Uint8Array>; leads: Map<string, PilotLead> } };
-  const mem = (g.__pilotMem ??= { subs: new Map(), files: new Map(), leads: new Map() });
+  const mem = (g.__pilotMem ??= { subs: new Map(), files: new Map(), leads: new Map() }) as { subs: Map<string, PilotSubmission>; files: Map<string, Uint8Array>; leads: Map<string, PilotLead>; feedback?: Map<string, PilotFeedback> };
   mem.leads ??= new Map();
+  mem.feedback ??= new Map();
+  const fb = mem.feedback;
   const gs = globalThis as unknown as { __pilotSettings?: StoredSettings | null };
   return {
     async save(sub, files) {
@@ -48,6 +56,12 @@ export function memoryStore(): PilotStore {
     async list(limit = 500) {
       return [...mem.subs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit).map(plain);
     },
+    async listByEmail(email) {
+      const e = email.trim().toLowerCase();
+      return [...mem.subs.values()].filter((s) => s.profile.email.trim().toLowerCase() === e).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(plain);
+    },
+    async saveFeedback(f) { fb.set(f.id, plain(f)); },
+    async listFeedback(limit = 500) { return [...fb.values()].sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit).map(plain); },
     async readFile(path) {
       const f = mem.files.get(path);
       if (!f) throw new Error("File not found.");
@@ -81,6 +95,15 @@ export async function firebaseStore(): Promise<PilotStore> {
     async list(limit = 500) {
       const snap = await col().orderBy("createdAt", "desc").limit(limit).get();
       return snap.docs.map((d) => d.data() as PilotSubmission);
+    },
+    async listByEmail(email) {
+      const snap = await col().where("profile.email", "==", email.trim().toLowerCase()).get();
+      return snap.docs.map((d) => d.data() as PilotSubmission).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    },
+    async saveFeedback(f) { await adminDb().collection(FEEDBACK_COLLECTION).doc(f.id).set(plain(f)); },
+    async listFeedback(limit = 500) {
+      const snap = await adminDb().collection(FEEDBACK_COLLECTION).orderBy("at", "desc").limit(limit).get();
+      return snap.docs.map((d) => d.data() as PilotFeedback);
     },
     async readFile(path) {
       const [buf] = await adminBucket().file(path).download();
@@ -125,6 +148,19 @@ export async function supabaseStore(): Promise<PilotStore> {
     get: one,
     async list(limit = 500) {
       return (await selectRows<{ data: PilotSubmission }>("pilot_submissions", `select=data&order=created_at.desc&limit=${limit}`)).map((r) => r.data);
+    },
+    async listByEmail(email) {
+      const e = encodeURIComponent(email.trim().toLowerCase());
+      return (await selectRows<{ data: PilotSubmission }>("pilot_submissions", `select=data&email=eq.${e}&order=created_at.desc&limit=100`)).map((r) => r.data)
+        .filter((x) => x.profile.email.trim().toLowerCase() === email.trim().toLowerCase()); // exact match, never a pattern
+    },
+    async saveFeedback(f) {
+      try { await upsertRow("pilot_feedback", { id: f.id, at: f.at, email: f.email, read: !!f.readAt, data: plain(f) }); }
+      catch (e) { throw new Error("Couldn't save feedback. In Supabase, open SQL Editor and run supabase/pilot.sql once more to create the feedback table. " + (e instanceof Error ? e.message.slice(0, 120) : "")); }
+    },
+    async listFeedback(limit = 500) {
+      try { return (await selectRows<{ data: PilotFeedback }>("pilot_feedback", `select=data&order=at.desc&limit=${limit}`)).map((r) => r.data); }
+      catch (e) { console.error("[pilot] feedback read failed (has supabase/pilot.sql been run again?)", e); return []; }
     },
     readFile: (path) => downloadObject(path),
     async getSettings() {
