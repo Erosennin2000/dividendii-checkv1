@@ -22,6 +22,8 @@ type Held = { registrarId: PilotRegistrarId; company: string };
 interface Result {
   id: string; ref: string; sendStatus: "queued" | "sending" | "sent" | "partial" | "failed"; mode: "test" | "live";
   registrars: string[]; companyCount: number; byHand: string[]; payment: { method: PaymentMethod; amountDue: number };
+  /** Set when online payment could not start: the forms are saved and we email a pay link. */
+  payLater?: boolean;
 }
 
 const STEPS = ["You", "Your companies", "Your details", "Sign and send"] as const;
@@ -34,7 +36,7 @@ async function post<T>(url: string, body: unknown): Promise<T> {
   return data as T;
 }
 
-interface PublicCfg { open: boolean; mode: "test" | "live"; registrars: { id: string; name: string }[]; payAheadPerCompany: number; debitRatePercent: number }
+interface PublicCfg { open: boolean; mode: "test" | "live"; registrars: { id: string; name: string }[]; payAheadPerCompany: number; debitRatePercent: number; payOnline?: boolean; payMode?: "off" | "test" | "live" }
 /** Used until the server answers, and if it can't: every registrar on, the standard prices. */
 const DEFAULT_CFG: PublicCfg = { open: true, mode: "test", registrars: PILOT_REGISTRARS.map((r) => ({ id: r.id, name: r.name })), payAheadPerCompany: PAY_AHEAD_PER_COMPANY, debitRatePercent: DEBIT_RATE * 100 };
 
@@ -59,7 +61,7 @@ export default function PilotPage() {
   // Step 4
   const [photo, setPhoto] = useState<string | null>(null);
   const [signature, setSignature] = useState<string | null>(null);
-  const method: PaymentMethod = "debit_after";
+  const method: PaymentMethod = "pay_ahead";
   const [payAck, setPayAck] = useState(false);
   const [consent, setConsent] = useState(false);
   const [website, setWebsite] = useState(""); // honeypot
@@ -74,7 +76,9 @@ export default function PilotPage() {
     [regId, held],
   );
   const byRegistrar = PILOT_REGISTRARS.map((r) => ({ r, items: held.filter((h) => h.registrarId === r.id) })).filter((g) => g.items.length);
-  const startWithVat = Math.round(perCompany * 1.075 * 100) / 100;
+  const feeBeforeVat = held.length * perCompany;
+  const total = Math.round(feeBeforeVat * 1.075 * 100) / 100;
+  const vat = Math.round((total - feeBeforeVat) * 100) / 100;
 
   const input: PilotInput = { profile, atPurchase: at, variants, holdings: held, photo, signature, payment: { method, acknowledged: payAck }, consent };
   const problems = pilotProblemsByStep(input);
@@ -119,6 +123,18 @@ export default function PilotPage() {
     setBusy(true); setError(null);
     try {
       const r = await post<Result>("/api/pilot/submit", { ...input, token, website });
+      if (cfg.payOnline) {
+        // The forms are saved. Now the start fee: off to Paystack's page. The forms are sent once Paystack confirms the payment.
+        try {
+          const p = await post<{ url?: string; paid?: boolean }>("/api/pilot/pay", { id: r.id, token });
+          if (p.url) { window.location.assign(p.url); return; } // keep the spinner while the browser leaves
+        } catch {
+          setResult({ ...r, payLater: true });
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          setBusy(false);
+          return;
+        }
+      }
       setResult(r); // the reference shows at once; the emails go out behind it
       window.scrollTo({ top: 0, behavior: "smooth" });
       if (r.sendStatus === "queued") {
@@ -126,7 +142,8 @@ export default function PilotPage() {
           .then((d) => setResult((cur) => (cur ? { ...cur, sendStatus: d.sendStatus } : cur)))
           .catch(() => setResult((cur) => (cur ? { ...cur, sendStatus: "failed" } : cur)));
       }
-    } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
+      setBusy(false);
+    } catch (e) { setError(errorMessage(e)); setBusy(false); }
   }
 
   if (result) return <Done r={result} email={profile.email} first={profile.firstName} rate={rate} perCompany={perCompany} />;
@@ -296,16 +313,23 @@ export default function PilotPage() {
 
           <section className="card">
             <h2>Our fee, in plain words</h2>
-            <p className="tiny">Sending your forms is free. The registrar pays any dividend straight into your own account. Dividendii never holds your money.</p>
+            <p className="tiny">You pay a small start fee now for each company. The registrar pays any dividend straight into your own account. Dividendii never holds your dividend.</p>
             <div className="ledger" style={{ margin: "10px 0" }}>
-              <div className="row"><span className="k">Today</span><span className="v">{naira(0)}</span></div>
-              <div className="row"><span className="k">If a registrar confirms there is money for you</span><span className="v">{naira(perCompany)} + 7.5% VAT ({nairaExact(startWithVat)}) per company</span></div>
-              <div className="row"><span className="k">Only when a dividend reaches your account</span><span className="v">{rate}% of that payment</span></div>
+              <div className="row"><span className="k">Start fee: {naira(perCompany)} × {held.length} {held.length === 1 ? "company" : "companies"}</span><span className="v">{nairaExact(feeBeforeVat)}</span></div>
+              <div className="row"><span className="k">VAT at 7.5%</span><span className="v">{nairaExact(vat)}</span></div>
+              <div className="row"><span className="k"><b>To pay now</b></span><span className="v"><b>{nairaExact(total)}</b></span></div>
+              <div className="row"><span className="k">Later, only when a dividend reaches your account</span><span className="v">{rate}% of that payment</span></div>
             </div>
-            <p className="tiny">We ask for the start fee only after a registrar tells us there is money, and we tell you the exact amount first. The {rate}% is never taken before you are paid. If nothing is found, you owe nothing.</p>
+            <p className="tiny">
+              {cfg.payOnline
+                ? <>You pay on Paystack&apos;s secure page by card, bank transfer or USSD. We send your forms as soon as the payment is confirmed. </>
+                : <>We will email you how to pay the start fee. </>}
+              The start fee covers our work and is not a promise that money will be found. The {rate}% is never taken before you are paid: we write to you and you pay it then.
+            </p>
+            {cfg.payOnline && cfg.payMode === "test" && <p className="tiny"><b>Test payments:</b> no real money moves. Use Paystack&apos;s test card 4084 0840 8408 4081, any future date, CVV 408.</p>}
             <div style={{ marginTop: 12 }}>
               <Check checked={payAck} onToggle={() => setPayAck((v) => !v)}>
-                <b>I understand the fees above.</b> I&apos;ll be told the exact amount before anything is asked of me.
+                <b>I understand the fees above.</b> I agree to pay {nairaExact(total)} now and {rate}% of any dividend I receive.
               </Check>
             </div>
           </section>
@@ -317,15 +341,15 @@ export default function PilotPage() {
             </Check>
             <div className="psum" style={{ marginTop: 16 }}>
               <span>{held.length} {held.length === 1 ? "company" : "companies"} with {byRegistrar.map((g) => g.r.name).join(" and ")}</span>
-              <b>Free to send</b>
+              <b>{nairaExact(total)}</b>
             </div>
             <div className="pnav" style={{ marginTop: 0 }}>
               <button className="btn ghost" onClick={() => go(3)}>Back</button>
-              <button className="btn gold lg" disabled={busy || problems[4].length > 0} onClick={submit}>{busy ? <span className="spin" /> : "Send my forms"}</button>
+              <button className="btn gold lg" disabled={busy || problems[4].length > 0} onClick={submit}>{busy ? <span className="spin" /> : cfg.payOnline ? `Pay ${nairaExact(total)} and send` : "Send my forms"}</button>
             </div>
             {problems[4].length > 0 && <p className="tiny" style={{ marginTop: 8 }}>Still needed: {problems[4].join(", ")}.</p>}
             {error && <div className="field-error">{error}</div>}
-            <p className="tiny" style={{ marginTop: 12 }}>Nothing is sent until you press the button. We email the registrar for you, and send you a confirmation.</p>
+            <p className="tiny" style={{ marginTop: 12 }}>{cfg.payOnline ? "Nothing is sent until your payment is confirmed. Then we email the registrar for you, and send you a confirmation." : "Nothing is sent until you press the button. We email the registrar for you, and send you a confirmation."}</p>
           </section>
         </div>
       )}
@@ -344,6 +368,14 @@ function Nav({ back, next, problems }: { back: () => void; next: () => void; pro
 }
 
 function Done({ r, email, first, rate, perCompany }: { r: Result; email: string; first: string; rate: number; perCompany: number }) {
+  if (r.payLater) return (
+    <div className="pwrap">
+      <section className="card">
+        <h1>Your forms are saved, {first}. One step left.</h1>
+        <p className="lede">We couldn&apos;t open the payment page just now. Your details are safe under reference <b>{r.ref}</b>, and you don&apos;t need to fill this in again. We will email a payment link to <b>{email}</b>. Your forms go to {r.registrars.join(" and ")} as soon as the start fee of <b>{nairaExact(r.payment.amountDue)}</b> is paid.</p>
+      </section>
+    </div>
+  );
   const ok = r.sendStatus === "sent";
   const pending = r.sendStatus === "queued" || r.sendStatus === "sending";
   return (
@@ -359,7 +391,7 @@ function Done({ r, email, first, rate, perCompany }: { r: Result; email: string;
         <div className="ledger" style={{ margin: "8px 0 16px" }}>
           <div className="row"><span className="k">Your reference</span><span className="v">{r.ref}</span></div>
           <div className="row"><span className="k">Companies</span><span className="v">{r.companyCount}</span></div>
-          <div className="row"><span className="k">Our fee</span><span className="v">Free to send. {naira(perCompany)} + VAT per company once a registrar confirms money, then {rate}% only when you are paid</span></div>
+          <div className="row"><span className="k">Our fee</span><span className="v">Start fee {nairaExact(r.payment.amountDue)} ({naira(perCompany)} + VAT per company): we will email you how to pay. Then {rate}% only when you are paid</span></div>
         </div>
         <h2>What happens next</h2>
         <ol className="pdone-steps">

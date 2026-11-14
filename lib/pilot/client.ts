@@ -36,7 +36,7 @@ export async function listSubmissions(): Promise<PilotSubmission[]> {
   return (await (await authed("/api/pilot/submissions")).json()).submissions;
 }
 
-export async function actOnSubmission(id: string, body: { action: "resend" | "chase" | "markPaid" | "markUnpaid" | "note"; registrarId?: string; note?: string; message?: string }): Promise<PilotSubmission> {
+export async function actOnSubmission(id: string, body: { action: "resend" | "chase" | "markPaid" | "markUnpaid" | "note" | "sendPayLink" | "requestSuccessFee" | "markSuccessPaid"; registrarId?: string; note?: string; message?: string; amount?: number | string }): Promise<PilotSubmission> {
   const res = await authed(`/api/pilot/submissions/${id}`, { method: "POST", body: JSON.stringify(body) });
   return (await res.json()).submission;
 }
@@ -81,6 +81,7 @@ export function leadsCsv(list: PilotLeadView[]): string {
 export interface SettingsView {
   settings: PilotSettings;
   smtp: { configured: boolean; host: string; user: string; hasPassword: boolean };
+  paystack?: "off" | "test" | "live";
   registrars: { id: string; name: string; formEmail: string; companies: number }[];
 }
 

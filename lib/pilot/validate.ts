@@ -85,7 +85,7 @@ export function parsePilotInput(raw: unknown, opts: { isOpen?: (registrarId: str
   }
 
   const pay = (b.payment ?? {}) as Record<string, unknown>;
-  const method = "debit_after"; // one fee model: start fee after a registrar confirms money, then a success fee
+  const method = "pay_ahead"; // one fee model: start fee before sending, then a success fee
   const dataUrl = (v: unknown, max: number) => (typeof v === "string" && /^data:image\/(png|jpe?g);base64,/.test(v) && v.length < max ? v : null);
 
   const input: PilotInput = {

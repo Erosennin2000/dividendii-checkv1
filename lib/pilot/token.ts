@@ -38,3 +38,16 @@ export function verifyToken(token: unknown, now = Date.now()): { leadId: string;
     return null;
   }
 }
+
+/**
+ * A link key for one submission, for the pay-by-link pages we email out. It proves the link came from us.
+ * No expiry: a payment reminder should still open weeks later. It only lets the holder pay, nothing else.
+ */
+export function signLink(submissionId: string): string {
+  return b64(createHmac("sha256", secret()).update("pay-link:" + submissionId).digest()).slice(0, 32);
+}
+export function validLink(submissionId: unknown, key: unknown): boolean {
+  if (typeof submissionId !== "string" || typeof key !== "string" || !submissionId || !key) return false;
+  const want = Buffer.from(signLink(submissionId)), got = Buffer.from(key);
+  return want.length === got.length && timingSafeEqual(want, got);
+}

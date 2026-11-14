@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { AdminError, requirePilotAdmin } from "@/lib/pilot/admin";
 import { getMailer } from "@/lib/pilot/mail";
 import { getPilotStore } from "@/lib/pilot/store";
+import { publicBase, requestSuccessFee, sendPayLink } from "@/lib/pilot/pay";
 import { chasePilot, resendPilot } from "@/lib/pilot/submit";
 import { clean } from "@/lib/pilot/text";
 
@@ -9,9 +10,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-interface Body { action?: string; registrarId?: string; note?: string; message?: string }
+interface Body { action?: string; registrarId?: string; note?: string; message?: string; amount?: number | string }
 
-/** Staff only: send or resend, chase a registrar, mark pay-ahead as received, or leave a note. */
+/** Staff only: send or resend, chase a registrar, email a pay link, ask for the success fee, mark fees received, or leave a note. */
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
     await requirePilotAdmin(req);
@@ -27,12 +28,27 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return NextResponse.json({ submission: await chasePilot(params.id, String(b.registrarId ?? ""), clean(b.message, 1000), { store, mailer: getMailer() }) });
     }
     if (b.action === "markPaid" || b.action === "markUnpaid") {
-      if (sub.payment.method !== "pay_ahead") throw new AdminError(400, "Only pay-ahead submissions are marked paid by hand. Direct debits are collected after payment.");
+      if (sub.payment.method !== "pay_ahead") throw new AdminError(400, "This older submission has no start fee to mark.");
+      if (b.action === "markUnpaid" && sub.payment.via === "paystack") throw new AdminError(400, "Paystack confirmed this payment, so it can't be marked unpaid here. Refund it in your Paystack dashboard instead.");
       const payment = b.action === "markPaid"
-        ? { ...sub.payment, status: "paid" as const, paidAt: new Date().toISOString() }
-        : { ...sub.payment, status: "awaiting_payment" as const, paidAt: null };
+        ? { ...sub.payment, status: "paid" as const, paidAt: new Date().toISOString(), via: "manual" as const }
+        : { ...sub.payment, status: "awaiting_payment" as const, paidAt: null, via: null };
       await store.update(sub.id, { payment });
       return NextResponse.json({ submission: { ...sub, payment } });
+    }
+    if (b.action === "sendPayLink") {
+      return NextResponse.json({ submission: await sendPayLink(params.id, publicBase(req.headers.get("origin")), { store, mailer: getMailer() }) });
+    }
+    if (b.action === "requestSuccessFee") {
+      return NextResponse.json({ submission: await requestSuccessFee(params.id, clean(b.message, 1000), publicBase(req.headers.get("origin")), { store, mailer: getMailer() }) });
+    }
+    if (b.action === "markSuccessPaid") {
+      // For a success fee that arrived another way (bank transfer, cash). Amount in naira, optional.
+      const amt = Number(String(b.amount ?? "").replace(/[,₦\s]/g, ""));
+      const prev = sub.successFee;
+      const successFee = { requestedAt: prev?.requestedAt ?? null, requests: prev?.requests ?? 0, declared: prev?.declared ?? null, fee: Number.isFinite(amt) && amt > 0 ? Math.round(amt * 100) / 100 : prev?.fee ?? null, status: "paid" as const, reference: prev?.reference ?? null, paidAt: new Date().toISOString(), via: "manual" as const };
+      await store.update(sub.id, { successFee });
+      return NextResponse.json({ submission: { ...sub, successFee } });
     }
     if (b.action === "note") {
       const note = clean(b.note, 2000);

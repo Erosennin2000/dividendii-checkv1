@@ -8,7 +8,7 @@ export function SiteHeader({ active = "check" }: { active?: "check" | "none" }) 
   return (
     <>
       <div className="sx-notice"><div className="sx-wrap">
-        <span>Dividendii staff will never ask for your PIN, OTP or card details, and never ask you to pay into an account that isn&apos;t in your own name.</span>
+        <span>Dividendii staff will never ask for your PIN, OTP or card details. Our fees are paid only on Paystack&apos;s secure page, never to a personal account.</span>
         <a href={wa} target="_blank" rel="noopener noreferrer">WhatsApp us</a>
       </div></div>
       <header className="sx-head"><div className="sx-wrap">

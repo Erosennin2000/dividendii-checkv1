@@ -138,18 +138,74 @@ export function registrarEmail(s: PilotSubmission, registrarId: string, settings
 function paymentLines(s: PilotSubmission, settings: PilotSettings = defaultSettings()) {
   const env = pilotEnv(settings);
   const BRAND = settings.brandName;
-  if (s.payment.method === "pay_ahead") {
-    const bits = [`Pay ahead: ${naira(s.payment.amountDue)} (${naira(settings.payAheadPerCompany)} for each of ${s.holdings.length} ${s.holdings.length === 1 ? "company" : "companies"}).`];
-    if (env.pay.accountNumber) bits.push(`Transfer to ${env.pay.accountName || BRAND}, ${env.pay.bank}, account ${env.pay.accountNumber}. Use ${s.ref} as the reference.`);
-    else bits.push(`We'll send you our account details shortly. Use ${s.ref} as the reference.`);
-    return bits;
-  }
-  const fee = settings.payAheadPerCompany;
-  return [
-    "Sending your forms is free. Nothing is due now.",
-    `If a registrar confirms there is money for you, we will ask for a start fee of ${naira(fee)} plus 7.5% VAT (${nairaExact(Math.round(fee * 1.075 * 100) / 100)}) for each company, and tell you the exact amount first.`,
-    `Only when a dividend reaches your account, we take ${settings.debitRatePercent}% of that payment. If nothing is found or paid, you owe no success fee.`,
-  ];
+  const n = s.holdings.length;
+  const each = `${naira(settings.payAheadPerCompany)} plus 7.5% VAT for each of ${n} ${n === 1 ? "company" : "companies"}`;
+  const success = `Success fee: only when a dividend reaches your account, ${settings.debitRatePercent}% of that payment. We will write to you then. If nothing is paid to you, you owe no success fee.`;
+  if (s.payment.status === "paid") return [`Start fee paid: ${nairaExact(s.payment.amountDue)} (${each}). Thank you.`, success];
+  const bits = [`Start fee due: ${nairaExact(s.payment.amountDue)} (${each}).`];
+  if (env.pay.accountNumber) bits.push(`Transfer to ${env.pay.accountName || BRAND}, ${env.pay.bank}, account ${env.pay.accountNumber}. Use ${s.ref} as the reference.`);
+  else bits.push(`We will send you a payment link. Use ${s.ref} as the reference.`);
+  return [...bits, success];
+}
+
+/** Sent when a start fee is still unpaid: a link to pay it online. */
+export function payLinkEmail(s: PilotSubmission, link: string, settings: PilotSettings = defaultSettings()): Pick<MailMessage, "subject" | "text" | "html"> {
+  const BRAND = settings.brandName;
+  const n = s.holdings.length;
+  const subject = `Pay your start fee to send your dividend forms (${s.ref})`;
+  const amount = nairaExact(s.payment.amountDue);
+  const text = [
+    `Hello ${s.profile.firstName},`, ``,
+    `Your dividend forms are ready, reference ${s.ref}. We send them to the registrars as soon as your start fee is paid.`, ``,
+    `Amount: ${amount} (${naira(settings.payAheadPerCompany)} plus 7.5% VAT for each of ${n} ${n === 1 ? "company" : "companies"}).`, ``,
+    `Pay securely with Paystack here:`, link, ``,
+    `${BRAND} staff will never ask for your PIN, OTP or card details by phone, WhatsApp or email.`, ``,
+    `Questions? Reply to this email and quote ${s.ref}.`, ``, BRAND,
+  ].join("\n");
+  const html = shell(
+    `<p>Hello ${esc(s.profile.firstName)},</p>` +
+    `<p>Your dividend forms are ready, reference <b>${esc(s.ref)}</b>. We send them to the registrars as soon as your start fee is paid.</p>` +
+    `<p><b>Amount: ${esc(amount)}</b> (${esc(naira(settings.payAheadPerCompany))} plus 7.5% VAT for each of ${n} ${n === 1 ? "company" : "companies"}).</p>` +
+    `<p><a href="${esc(link)}" style="background:#C59F56;color:#17375A;font-weight:bold;padding:10px 18px;border-radius:8px;text-decoration:none;display:inline-block">Pay ${esc(amount)} with Paystack</a></p>` +
+    `<p style="color:#5b6472">${esc(BRAND)} staff will never ask for your PIN, OTP or card details by phone, WhatsApp or email.</p>` +
+    `<p>Questions? Reply to this email and quote ${esc(s.ref)}.</p><p>${esc(BRAND)}</p>`,
+  );
+  return { subject, text, html };
+}
+
+/** The success-fee request. Trust-based: the shareholder tells us what they received and pays the agreed share. */
+export function successFeeEmail(s: PilotSubmission, link: string | null, note = "", settings: PilotSettings = defaultSettings()): Pick<MailMessage, "subject" | "text" | "html"> {
+  const BRAND = settings.brandName;
+  const rate = settings.debitRatePercent;
+  const companies = s.holdings.map((h) => h.company);
+  const extra = note.trim();
+  const subject = `Has your dividend arrived? Your ${rate}% success fee (${s.ref})`;
+  const how = link
+    ? `Tell us how much you received and pay the ${rate}% securely with Paystack here:`
+    : `Please reply to this email with the amount you received, and we will send you how to pay the ${rate}%.`;
+  const text = [
+    `Hello ${s.profile.firstName},`, ``,
+    `We believe a registrar has now paid dividends into your account for the holdings we sent forms for, reference ${s.ref}:`,
+    ...companies.map((c) => `  - ${c}`), ``,
+    `When you signed up, you agreed to a success fee of ${rate}% of what is actually paid to you. The registrar pays you directly, so we do not see the amount. We are relying on you to tell us.`, ``,
+    how, ...(link ? [link] : []), ``,
+    ...(extra ? [extra, ``] : []),
+    `If you have not been paid yet, reply and tell us, and we will keep chasing the registrar.`, ``,
+    `Thank you for trusting us with this.`, ``, BRAND,
+  ].join("\n");
+  const html = shell(
+    `<p>Hello ${esc(s.profile.firstName)},</p>` +
+    `<p>We believe a registrar has now paid dividends into your account for the holdings we sent forms for, reference <b>${esc(s.ref)}</b>:</p>` +
+    `<ul>${companies.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>` +
+    `<p>When you signed up, you agreed to a success fee of <b>${rate}%</b> of what is actually paid to you. The registrar pays you directly, so we do not see the amount. We are relying on you to tell us.</p>` +
+    (link
+      ? `<p>${esc(how)}</p><p><a href="${esc(link)}" style="background:#C59F56;color:#17375A;font-weight:bold;padding:10px 18px;border-radius:8px;text-decoration:none;display:inline-block">Tell us the amount and pay ${rate}%</a></p>`
+      : `<p>${esc(how)}</p>`) +
+    (extra ? `<p>${esc(extra).replace(/\n/g, "<br>")}</p>` : "") +
+    `<p>If you have not been paid yet, reply and tell us, and we will keep chasing the registrar.</p>` +
+    `<p>Thank you for trusting us with this.</p><p>${esc(BRAND)}</p>`,
+  );
+  return { subject, text, html };
 }
 
 /** What the shareholder gets: a receipt of what was sent, where, and what happens next. No BVN, no attachments. */

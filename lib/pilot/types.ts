@@ -28,7 +28,7 @@ export interface PilotInput {
 export type EmailStatus = "sent" | "failed";
 
 export interface EmailRecord {
-  kind: "registrar" | "confirmation" | "chase";
+  kind: "registrar" | "confirmation" | "chase" | "pay_link" | "success_fee" | "receipt";
   registrarId?: PilotRegistrarId;
   /** Where it was actually delivered. */
   to: string;
@@ -67,12 +67,33 @@ export interface PilotSubmission {
   holdings: { registrarId: PilotRegistrarId; registrar: string; company: string }[];
   /** Per registrar: what got ticked on the form and what the registrar must add by hand. */
   forms: { registrarId: PilotRegistrarId; registrar: string; ticked: string[]; unlisted: string[]; warnings: string[] }[];
-  payment: { method: PaymentMethod; amountDue: number; status: PaymentStatus; paidAt: string | null };
+  payment: {
+    method: PaymentMethod; amountDue: number; status: PaymentStatus; paidAt: string | null;
+    /** Latest Paystack reference for the start fee, and how it was paid. Absent on older records. */
+    reference?: string | null; channel?: string | null; gatewayId?: number | null;
+    /** "paystack": confirmed by Paystack. "manual": staff marked it paid. */
+    via?: "paystack" | "manual" | null;
+  };
+  /** The success fee: asked for by email once we believe the registrar has paid. Trust-based. */
+  successFee?: SuccessFee;
   consentAt: string;
   files: StoredFile[];
   emails: EmailRecord[];
   sendStatus: SendStatus;
   note: string;
+}
+
+export interface SuccessFee {
+  /** When staff last asked, and how many times. */
+  requestedAt: string | null;
+  requests: number;
+  /** What the shareholder told us they received, and the fee worked out from it. Naira. */
+  declared: number | null;
+  fee: number | null;
+  status: "requested" | "paid";
+  reference?: string | null;
+  paidAt: string | null;
+  via?: "paystack" | "manual" | null;
 }
 
 /** The list view leaves out the heavy parts. */

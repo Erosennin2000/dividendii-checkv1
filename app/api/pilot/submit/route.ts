@@ -22,7 +22,7 @@ export async function POST(req: Request) {
 
     const raw = await req.json().catch(() => null);
     // The hidden "website" box is for bots. Pretend it worked and do nothing.
-    if (raw && typeof raw.website === "string" && raw.website.trim()) return NextResponse.json({ id: "", ref: "DVD-000000", sendStatus: "sent", payment: { method: "debit_after", amountDue: 0 } });
+    if (raw && typeof raw.website === "string" && raw.website.trim()) return NextResponse.json({ id: "", ref: "DVD-000000", sendStatus: "sent", payment: { method: "pay_ahead", amountDue: 0 } });
 
     // Step 1's email check must have passed. The token says which lead, and the email on the forms is theirs.
     const who = verifyToken(raw?.token);

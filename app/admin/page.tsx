@@ -1,6 +1,7 @@
 "use client";
 
 import { withBase } from "@/lib/base";
+import { nairaExact } from "@/lib/site";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { naira } from "@/lib/domain/fees";
 import { actOnSubmission, adminSignIn, adminToken, downloadFile, fileUrl, leadsCsv, listLeads, listSubmissions, SignedOut, submissionsCsv } from "@/lib/pilot/client";
@@ -106,6 +107,7 @@ export default function PilotAdmin() {
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState("");
+  const [sfNote, setSfNote] = useState("");
 
   const [signedOut, setSignedOut] = useState(false);
   const [preview, setPreview] = useState<{ id: string; registrarId: string } | null>(null);
@@ -149,7 +151,7 @@ export default function PilotAdmin() {
       <div className="page-head">
         <div>
           <h1>Check my dividends: submissions</h1>
-          <p>Everyone who has started or finished the pilot. Leads are people who began step 1, finished or not. Open a submission to preview the PDFs that went to each registrar, send or chase, or mark a payment as received. The list refreshes by itself.</p>
+          <p>Everyone who has started or finished the pilot. Leads are people who began step 1, finished or not. Open a submission to preview the PDFs that went to each registrar, send or chase, email a pay link, or ask for the success fee. The list refreshes by itself.</p>
         </div>
         <div className="row" style={{ gap: 8 }}>
         <a className="btn ghost sm" href={withBase("/admin/settings")}>Settings</a>
@@ -210,7 +212,7 @@ export default function PilotAdmin() {
               <div className="tiny">{[...new Set(s.holdings.map((h) => h.registrarId))].map((rid) => `${PILOT_REGISTRARS.find((r) => r.id === rid)?.name.split(" ")[0]} ${s.holdings.filter((h) => h.registrarId === rid).length}`).join(" · ")} &middot; {plural(s.holdings.length)} in all</div>
               <div className="tags" style={{ marginTop: 8 }}>
                 <span className={`tag ${tone(s.sendStatus)}`}>{label[s.sendStatus]}</span>
-                <span className={`tag ${tone(s.payment.status)}`}>{label[s.payment.status]}{s.payment.method === "pay_ahead" ? ` ${naira(s.payment.amountDue)}` : ""}</span>
+                <span className={`tag ${tone(s.payment.status)}`}>{label[s.payment.status]}{s.payment.method === "pay_ahead" ? ` ${nairaExact(s.payment.amountDue)}` : ""}</span>
                 {s.mode === "test" && <span className="tag">Test</span>}
               </div>
             </button>
@@ -255,14 +257,38 @@ export default function PilotAdmin() {
               })}
 
               <div className="ledger">
-                <div className="row"><span className="k">Payment</span><span className="v">{sel.payment.method === "pay_ahead" ? `Pay ahead ${naira(sel.payment.amountDue)}` : "Direct debit after (10%)"}</span></div>
-                <div className="row"><span className="k">Status</span><span className="v">{label[sel.payment.status]}{sel.payment.paidAt ? `, ${when(sel.payment.paidAt)}` : ""}</span></div>
+                <div className="row"><span className="k">Start fee</span><span className="v">{sel.payment.method === "pay_ahead" ? nairaExact(sel.payment.amountDue) : "None (older submission)"}</span></div>
+                <div className="row"><span className="k">Status</span><span className="v">{label[sel.payment.status]}{sel.payment.paidAt ? `, ${when(sel.payment.paidAt)}` : ""}{sel.payment.via === "paystack" ? ` by Paystack${sel.payment.channel ? ` (${sel.payment.channel})` : ""}` : sel.payment.via === "manual" ? ", marked by staff" : ""}</span></div>
+                {sel.payment.reference && <div className="row"><span className="k">Paystack reference</span><span className="v">{sel.payment.reference}</span></div>}
               </div>
               {sel.payment.method === "pay_ahead" && (
-                <button className="btn ghost sm" disabled={busy === "pay"} onClick={() => run(sel.id, { action: sel.payment.status === "paid" ? "markUnpaid" : "markPaid" }, "pay")}>
-                  {sel.payment.status === "paid" ? "Undo: mark as not paid" : "Mark as paid"}
-                </button>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {sel.payment.status !== "paid" && <button className="btn sm" disabled={busy === "paylink"} onClick={() => run(sel.id, { action: "sendPayLink" }, "paylink")}>{busy === "paylink" ? "Sending" : "Email a pay link"}</button>}
+                  {sel.payment.via !== "paystack" && (
+                    <button className="btn ghost sm" disabled={busy === "pay"} onClick={() => run(sel.id, { action: sel.payment.status === "paid" ? "markUnpaid" : "markPaid" }, "pay")}>
+                      {sel.payment.status === "paid" ? "Undo: mark as not paid" : "Mark as paid by hand"}
+                    </button>
+                  )}
+                </div>
               )}
+              {sel.payment.method === "pay_ahead" && sel.payment.status !== "paid" && sel.sendStatus === "queued" && <p className="tiny">The forms have not gone to the registrar. They send by themselves when Paystack confirms the start fee. If you mark it paid by hand, press Send on each registrar above.</p>}
+
+              <div className="ledger">
+                <div className="row"><span className="k">Success fee</span><span className="v">
+                  {sel.successFee?.status === "paid" ? `Paid ${sel.successFee.fee != null ? nairaExact(sel.successFee.fee) : ""}${sel.successFee.paidAt ? `, ${when(sel.successFee.paidAt)}` : ""}${sel.successFee.via === "manual" ? ", marked by staff" : ""}`
+                    : sel.successFee?.requests ? `Asked ${sel.successFee.requests} ${sel.successFee.requests === 1 ? "time" : "times"}, last ${when(sel.successFee.requestedAt!)}` : "Not asked yet"}
+                </span></div>
+                {sel.successFee?.declared != null && <div className="row"><span className="k">They said they received</span><span className="v">{nairaExact(sel.successFee.declared)}</span></div>}
+              </div>
+              <div className="field">
+                <label htmlFor="sfnote">Ask for the success fee</label>
+                <textarea id="sfnote" className="input" rows={2} style={{ minHeight: 56 }} value={sfNote} onChange={(e) => setSfNote(e.target.value)} placeholder="Optional line to add, e.g. Africa Prudential told us they paid you on 3 December." />
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+                  <button className="btn sm" disabled={busy === "sfee"} onClick={() => { if (window.confirm(`Email ${sel.profile.email} asking for the success fee?`)) void run(sel.id, { action: "requestSuccessFee", message: sfNote }, "sfee").then(() => setSfNote("")); }}>{busy === "sfee" ? "Sending" : sel.successFee?.requests ? "Send the request again" : "Email the success-fee request"}</button>
+                  {sel.successFee?.status !== "paid" && <button className="btn ghost sm" disabled={busy === "sfpaid"} onClick={() => { const a = window.prompt("Success fee received another way. Amount in naira (leave empty if unknown):", ""); if (a !== null) void run(sel.id, { action: "markSuccessPaid", amount: a }, "sfpaid"); }}>Mark as received by hand</button>}
+                </div>
+                <p className="tiny" style={{ marginTop: 6 }}>The email asks them to say how much the registrar paid them and to pay the agreed share. It is trust-based: we cannot see what they received.</p>
+              </div>
 
               <div className="field">
                 <label htmlFor="pnote">Your note</label>

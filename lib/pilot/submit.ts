@@ -135,7 +135,8 @@ export async function createPilot(input: PilotInput, deps: Deps): Promise<PilotS
     profile: input.profile, atPurchase: input.atPurchase, variants: input.variants, // the originals, exactly as typed
     holdings: input.holdings.map((h) => ({ ...h, registrar: pilotRegistrar(h.registrarId)!.name })),
     forms,
-    payment: { method: "debit_after", amountDue: 0, status: "debit_pending", paidAt: null },
+    // One fee model: a start fee per company plus VAT, paid before the forms go out; a success fee is asked for later.
+    payment: { method: "pay_ahead", amountDue: Math.round(n * settings.payAheadPerCompany * 1.075 * 100) / 100, status: "awaiting_payment", paidAt: null },
     consentAt: now.toISOString(),
     files, emails: [], sendStatus: "queued", note: "",
   };

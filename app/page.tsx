@@ -20,7 +20,7 @@ export default function Landing() {
             <div className="hero-cta">
               <Link className="btn gold lg" href="/pilot">Start my check</Link>
             </div>
-            <div className="hero-note">Free to send. It takes about ten minutes. We reply within 24 hours with a first update.</div>
+            <div className="hero-note">It takes about ten minutes. {naira(START_FEE)} plus VAT per company to send. First update within 24 hours.</div>
           </div>
           <div className="hero-stat">
             <div className="sum">{"₦"}270bn</div>
@@ -40,14 +40,14 @@ export default function Landing() {
           <div className="strip-item"><div className="n">3</div><h3>Your details</h3>
             <p>Your BVN and bank account, and the address, phone and next of kin you gave when you bought the shares.</p></div>
           <div className="strip-item"><div className="n">4</div><h3>Sign and send</h3>
-            <p>Add your photo and signature, confirm the fees, and we email the registrar for you.</p></div>
+            <p>Add your photo and signature, pay the start fee, and we email the registrar for you.</p></div>
         </div>
       </section>
 
       <section className="trust">
-        <div><div className="k">{"₦"}0</div><div className="v">To send your forms. Dividendii never holds your money. The registrar pays your own account directly</div></div>
-        <div><div className="k">{naira(START_FEE)}</div><div className="v">Per company, plus {VAT_RATE * 100}% VAT ({naira(startFeeWithVat())}), asked only after a registrar confirms there is money for you</div></div>
-        <div><div className="k">{SUCCESS_PERCENT}%</div><div className="v">Of what is actually paid to you, taken only when a dividend reaches your account</div></div>
+        <div><div className="k">{naira(START_FEE)}</div><div className="v">Start fee per company, plus {VAT_RATE * 100}% VAT ({naira(startFeeWithVat())}), paid securely with Paystack when you send your forms</div></div>
+        <div><div className="k">Direct</div><div className="v">The registrar pays your own bank account. Dividendii never holds your dividend</div></div>
+        <div><div className="k">{SUCCESS_PERCENT}%</div><div className="v">Of what is actually paid to you, paid by you only after a dividend reaches your account</div></div>
       </section>
 
       <p className="foot-note tiny">

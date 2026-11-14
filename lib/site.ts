@@ -12,7 +12,7 @@ export const SITE = {
   home: "https://www.dividendii.com",
   source: "https://nairametrics.com/2026/07/16/sec-launches-nationwide-campaign-to-recover-n270-billion-unclaimed-dividends/",
 };
-/** Start fee, per company, before VAT. Taken only after a registrar confirms there is money. */
+/** Start fee, per company, before VAT. Paid when the forms are sent. */
 export const START_FEE = 150;
 export const VAT_RATE = 0.075;
 export const startFeeWithVat = (fee = START_FEE) => Math.round(fee * (1 + VAT_RATE) * 100) / 100;

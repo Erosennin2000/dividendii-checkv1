@@ -1,3 +1,4 @@
+import { paystackMode, paystackOn } from "./paystack";
 import "server-only";
 import { PILOT_BRAND, PILOT_REGISTRARS, registrarAddress, PAY_AHEAD_PER_COMPANY, DEBIT_RATE } from "./config";
 import { isEmail, type PilotSettings, type StoredSettings } from "./settingsShared";
@@ -79,6 +80,10 @@ export function publicConfig(s: PilotSettings) {
     registrars: PILOT_REGISTRARS.filter((r) => s.registrars[r.id]?.enabled).map((r) => ({ id: r.id, name: r.name })),
     payAheadPerCompany: s.payAheadPerCompany,
     debitRatePercent: s.debitRatePercent,
+    /** True when the start fee is paid online (Paystack) before the forms are sent. */
+    payOnline: paystackOn(),
+    /** "test" shows a note on the form that no real money moves. */
+    payMode: paystackMode(),
   };
 }
 

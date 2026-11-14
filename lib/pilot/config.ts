@@ -54,7 +54,7 @@ export function registrarAddress(id: string): string {
 
 /** Pay-ahead price per company, in naira. */
 export const PAY_AHEAD_PER_COMPANY = 150;
-/** Success fee, on dividends actually received. (Start fee above is per company, plus 7.5% VAT, asked only after a registrar confirms money.) */
+/** Success fee, on dividends actually received. (Start fee above is per company, plus 7.5% VAT, paid before the forms are sent.) */
 export const DEBIT_RATE = 0.05;
 
 export const MAX_COMPANIES = 60;

@@ -17,7 +17,7 @@ export default function PilotLayout({ children }: { children: ReactNode }) {
         {children}
         <div className="pwrap pfoot">
           <span>Dividendii &middot; Get back what&apos;s yours</span>
-          <span>The registrar pays you directly. Dividendii never holds your money.</span>
+          <span>The registrar pays you directly. Dividendii never holds your dividend.</span>
         </div>
       </main>
       <SiteFooter />

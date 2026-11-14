@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getMailer } from "@/lib/pilot/mail";
+import { paystackOn } from "@/lib/pilot/paystack";
 import { getPilotStore } from "@/lib/pilot/store";
 import { dispatchPilot } from "@/lib/pilot/submit";
 import { verifyToken } from "@/lib/pilot/token";
@@ -21,6 +22,8 @@ export async function POST(req: Request) {
     const store = await getPilotStore();
     const found = typeof raw?.id === "string" ? await store.get(raw.id) : null;
     if (!found || found.leadId !== who.leadId) return NextResponse.json({ error: "Submission not found." }, { status: 404 });
+    // With online payment on, forms are sent by the payment confirmation, not by the browser.
+    if (paystackOn() && found.payment.method === "pay_ahead" && found.payment.status !== "paid") return NextResponse.json({ error: "Pay the start fee to send your forms." }, { status: 402 });
     const sub = await dispatchPilot(found.id, { store, mailer: getMailer() });
     return NextResponse.json({ sendStatus: sub.sendStatus });
   } catch (e) {

@@ -169,14 +169,20 @@ export default function PilotSettingsPage() {
           <h2>What you charge and where people pay</h2>
           <div className="field-row">
             <TextField label="Start fee per company before VAT (₦)" value={String(draft.payAheadPerCompany)} onChange={(v) => set("payAheadPerCompany", Number(v.replace(/\D/g, "")) || 0)} inputMode="numeric" />
-            <TextField label="Success fee (% of money received)" value={String(draft.debitRatePercent)} onChange={(v) => set("debitRatePercent", Math.min(50, Number(v.replace(/[^\d.]/g, "")) || 0))} inputMode="decimal" hint="Taken from dividends actually received." />
+            <TextField label="Success fee (% of money received)" value={String(draft.debitRatePercent)} onChange={(v) => set("debitRatePercent", Math.min(50, Number(v.replace(/[^\d.]/g, "")) || 0))} inputMode="decimal" hint="Asked for by email once they are paid." />
           </div>
           <div className="field-row">
             <TextField label="Bank" value={draft.payment.bank} onChange={(v) => set("payment", { ...draft.payment, bank: v })} />
             <TextField label="Account name" value={draft.payment.accountName} onChange={(v) => set("payment", { ...draft.payment, accountName: v })} />
             <TextField label="Account number" value={draft.payment.accountNumber} onChange={(v) => set("payment", { ...draft.payment, accountNumber: v.replace(/\D/g, "").slice(0, 10) })} inputMode="numeric" />
           </div>
-          <p className="tiny">The account details appear in the confirmation email for people who choose to pay ahead. Prices on the public form update when you save.</p>
+          <p className="tiny">
+            Online payment (Paystack): {view.paystack === "live" ? <b>live. Real money is collected.</b>
+              : view.paystack === "test" ? <b>test mode. Test cards only, no real money moves.</b>
+              : <b>off. People are not asked to pay online; the bank details below go in the email instead.</b>}
+            {" "}It is switched by the PAYSTACK_SECRET_KEY setting in Vercel, not here.
+          </p>
+          <p className="tiny">The bank details are only used when online payment is off. Prices on the public form update when you save.</p>
         </section>
       </div>
 

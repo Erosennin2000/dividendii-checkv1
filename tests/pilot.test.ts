@@ -130,11 +130,11 @@ describe("submitPilot", () => {
     expect(conf.to).toBe("adewale@example.com");
     expect(conf.text).toContain(sub.ref);
     expect(conf.text).toContain("₦150"); // start fee per company
-    expect(conf.text).toContain("₦161.25"); // with VAT
+    expect(conf.text).toContain("₦483.75"); // 3 companies, with VAT
     expect(conf.text).not.toContain("22154874718"); // no BVN in the shareholder's email
 
     const saved = await store.get(sub.id);
-    expect(saved?.payment).toMatchObject({ method: "debit_after", amountDue: 0, status: "debit_pending" });
+    expect(saved?.payment).toMatchObject({ method: "pay_ahead", amountDue: 483.75, status: "awaiting_payment" });
     expect(saved?.files.length).toBe(4);
     expect(saved?.emails.filter((e) => e.kind === "registrar").every((e) => e.wouldHaveGoneTo)).toBe(true);
   }, 60_000);
@@ -149,9 +149,9 @@ describe("submitPilot", () => {
     expect(m.subject).not.toContain("TEST");
   }, 60_000);
 
-  it("debit-after submissions owe nothing up front", async () => {
+  it("every submission owes the start fee: per company, plus VAT", async () => {
     const sub = await submitPilot(parsePilotInput(raw({ payment: { method: "debit_after", acknowledged: true } })), { store: memoryStore(), mailer: new FakeMailer() });
-    expect(sub.payment).toMatchObject({ method: "debit_after", amountDue: 0, status: "debit_pending" });
+    expect(sub.payment).toMatchObject({ method: "pay_ahead", amountDue: 483.75, status: "awaiting_payment" });
   }, 60_000);
 
   it("keeps the record when a send fails, then resends only what failed", async () => {
@@ -456,7 +456,7 @@ describe("admin settings", () => {
     const sub = await submitPilot(parsePilotInput(raw({ holdings })), { store, mailer });
     void leadIdFor;
     expect(sub.mode).toBe("live");
-    expect(sub.payment).toMatchObject({ method: "debit_after" });
+    expect(sub.payment).toMatchObject({ method: "pay_ahead", amountDue: 1075 }); // 2 companies x 500 + VAT
     const reg = mailer.sent.filter((m) => m.attachments?.length);
     expect(reg.map((m) => m.to).sort()).toEqual(["customercare@centurionregistrars.com", "enquiry@veritasregistrars.com"]);
     for (const m of reg) {
