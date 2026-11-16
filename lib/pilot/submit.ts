@@ -2,6 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { dataUrlBytes, fillForms } from "@/lib/forms/fill";
 import type { FormProfile } from "@/lib/forms/types";
+import { matchBvn, monnifyMode, monnifyOn } from "@/lib/pilot/monnify";
 import { buildAuthorityLetter } from "./authority";
 import { PILOT_REGISTRARS, pilotRegistrar, type PilotRegistrarId } from "./config";
 import { effectiveSettings } from "./settings";
@@ -157,6 +158,11 @@ export async function dispatchPilot(id: string, deps: Deps): Promise<PilotSubmis
   await deps.store.update(id, { sendStatus: "sending" });
   const settings = await settingsFor(deps);
   const ids = [...new Set(sub.holdings.map((h) => h.registrarId))];
+  // One BVN and account name check per submission, best effort. It never holds the forms back.
+  if (!sub.verification && monnifyOn() && monnifyMode() === "live") {
+    sub.verification = await matchBvn(sub.profile.bvn, sub.profile.bankName, sub.profile.accountNumber);
+    await deps.store.update(id, { verification: sub.verification });
+  }
   // Registrar emails read their PDFs back from the store: the same path a later "resend" takes. All go out together.
   sub.emails.push(...(await Promise.all(ids.map((rid) => sendToRegistrar(sub, rid, deps, settings)))));
   sub.sendStatus = sendStatusOf(sub);

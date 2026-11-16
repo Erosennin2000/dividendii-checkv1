@@ -53,6 +53,8 @@ export default function PilotPage() {
   const [lead, setLead] = useState<{ id: string; demo: boolean } | null>(null);
   const [code, setCode] = useState("");
   const [token, setToken] = useState<string | null>(null);
+  // "The bank shows this account as ..." (free Monnify lookup). Information only: it never blocks anyone.
+  const [acctName, setAcctName] = useState<{ name: string; key: string } | null>(null);
   // Step 2
   const [regName, setRegName] = useState("");
   const [held, setHeld] = useState<Held[]>([]);
@@ -148,6 +150,20 @@ export default function PilotPage() {
 
   if (result) return <Done r={result} email={profile.email} first={profile.firstName} rate={rate} perCompany={perCompany} />;
   if (!cfg.open) return <div className="card" style={{ maxWidth: 560, margin: "48px auto" }}><h1 style={{ fontSize: 28 }}>We&apos;ve paused new submissions</h1><p className="lede">We aren&apos;t taking new forms for a short while. Please check back soon.</p></div>;
+
+
+  useEffect(() => {
+    const bank = profile.bankName, acct = profile.accountNumber;
+    if (step !== 3 || !token || !bank || acct.length !== 10) { setAcctName(null); return; }
+    let live = true;
+    const t = setTimeout(async () => {
+      try {
+        const r = await post<{ name: string | null }>("/api/pilot/lookup", { token, bank, accountNumber: acct });
+        if (live) setAcctName(r.name ? { name: r.name, key: bank + "|" + acct } : null);
+      } catch { if (live) setAcctName(null); }
+    }, 500);
+    return () => { live = false; clearTimeout(t); };
+  }, [step, token, profile.bankName, profile.accountNumber]);
 
   const waitingForCode = step === 1 && lead && !token;
 
@@ -272,6 +288,15 @@ export default function PilotPage() {
               <option value={OTHER_BANK}>{OTHER_BANK}</option>
             </select>
             {bankOther && <input className="input" style={{ marginTop: 8 }} placeholder="Type your bank's name" value={profile.bankName} onChange={(e) => set("bankName")(e.target.value)} />}
+            {acctName && acctName.key === profile.bankName + "|" + profile.accountNumber && (() => {
+              const shown = acctName.name.toUpperCase();
+              const looksRight = shown.includes(profile.surname.trim().toUpperCase()) || shown.includes(profile.firstName.trim().toUpperCase());
+              return (
+                <p className="tiny" role="status" style={{ marginTop: 8 }}>
+                  The bank shows this account as <b>{acctName.name}</b>. {looksRight ? "That looks like you." : "That doesn't look like your name. Please check the account number and the bank."}
+                </p>
+              );
+            })()}
           </div>
           <TextField label="Home address now" value={profile.address} onChange={set("address")} placeholder="House number, street and area" autoComplete="street-address" />
           <div className="field-row three">

@@ -58,6 +58,27 @@ How it works: at step 4 the app works out the start fee (₦150 per company plus
 - **Feedback:** account holders send it from the Feedback tab (also linked from the demo banner). You read it under **Feedback** on the staff page, mark it read, reply by email, or export it as CSV. The **Leads and accounts** tab shows who has set a password and who joined the waitlist.
 - `PILOT_SECRET` also signs the account sessions. Set it before going live; changing it later signs everyone out.
 
+## 7. Bank checks (Monnify)
+
+What it does, and what it costs:
+
+| Check | When | Cost |
+|---|---|---|
+| Account name lookup ("The bank shows this account as ...") | Step 3, as soon as the bank and 10-digit account number are filled in | Free |
+| BVN and account name match | Once per submission, right before the forms are sent, after the start fee is paid | about N10 per submission |
+
+Neither ever blocks a customer or holds forms back. If Monnify is off, your wallet is empty, the bank name can't be matched or anything fails, the result is "Not checked" and the forms go out as normal. A mismatch only shows as a flag on the staff page (open the submission, row "Bank check").
+
+To switch it on:
+
+1. In Monnify, open **Developer > API Keys** and copy the **API Key** and **Secret Key** (use the LIVE ones, Monnify's BVN checks have no sandbox).
+2. In Vercel, open the **check app** project > **Settings > Environment Variables** and add `MONNIFY_API_KEY` and `MONNIFY_SECRET_KEY` (and `MONNIFY_CONTRACT_CODE` if you like; these two checks don't use it). Redeploy.
+3. Top up the Monnify wallet with a small amount (N2,000 to N5,000 is plenty to start). Without it, only the BVN match is skipped.
+4. Open the staff page > **Settings**. Under the bank details you will see "Bank checks (Monnify)" and a **Test the Monnify connection (free)** button. It signs in, downloads Monnify's bank list and tells you how many of our banks it could match. Any it can't match simply won't get a lookup.
+5. Try step 3 with a real account number. You should see "The bank shows this account as ...".
+
+Each BVN check in test mode also costs N10 (it is a real call), so test with a handful only.
+
 ## Things to know
 - Fees shown: ₦150 per company plus 7.5% VAT, paid at step 4 before the forms are sent; then 5% when they are paid. Defaults live in `lib/pilot/config.ts` and can be changed at /check/admin/settings.
 - Vercel's free Hobby plan is for non-commercial use. Once you take your first fee the app is commercial and Vercel may ask for the paid plan. That is a cost; I will not switch it on without asking you.

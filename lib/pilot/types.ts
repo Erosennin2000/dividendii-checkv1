@@ -61,6 +61,8 @@ export interface PilotSubmission {
   mode: "test" | "live";
   /** The verified lead this submission came from. */
   leadId: string;
+  /** BVN and account name check (Monnify). Never blocks sending. Absent until the check has run. */
+  verification?: { status: "match" | "partial" | "no_match" | "unchecked"; percent?: number; checkedAt: string; note?: string };
   profile: FormProfile;
   atPurchase: PilotInput["atPurchase"];
   variants: string[];

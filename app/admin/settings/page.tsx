@@ -3,7 +3,7 @@
 import { withBase } from "@/lib/base";
 import { useEffect, useMemo, useState } from "react";
 import { Check, TextField } from "@/components/Field";
-import { getSettings, saveSettings, sendTestEmail, SignedOut, type SettingsView } from "@/lib/pilot/client";
+import { checkMonnify, getSettings, saveSettings, sendTestEmail, SignedOut, type MonnifyCheck, type SettingsView } from "@/lib/pilot/client";
 import { REGISTRAR_CAUTIONS, isEmail, type PilotSettings } from "@/lib/pilot/settingsShared";
 import { errorMessage } from "@/lib/util";
 
@@ -16,7 +16,8 @@ export default function PilotSettingsPage() {
   const [saved, setSaved] = useState<string>(""); // JSON of what's on the server, to tell if there are unsaved changes
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"save" | "test" | null>(null);
+  const [busy, setBusy] = useState<"save" | "test" | "monnify" | null>(null);
+  const [mcheck, setMcheck] = useState<MonnifyCheck | null>(null);
   const [testTo, setTestTo] = useState("");
   const [confirmLive, setConfirmLive] = useState(false);
 
@@ -182,6 +183,22 @@ export default function PilotSettingsPage() {
               : <b>off. People are not asked to pay online; the bank details below go in the email instead.</b>}
             {" "}It is switched by the PAYSTACK_SECRET_KEY setting in Vercel, not here.
           </p>
+          <p className="tiny">
+            Bank checks (Monnify): {view.monnify === "live" ? <b>live. Account names are looked up free; the BVN and account name match costs ₦10 per submission, once, after the start fee is paid. It never stops anyone, and is skipped if your Monnify wallet is empty.</b>
+              : view.monnify === "sandbox" ? <b>sandbox. Account name lookups only. BVN checks need live keys.</b>
+              : <b>off. Nothing is looked up.</b>}
+            {" "}It is switched by MONNIFY_API_KEY and MONNIFY_SECRET_KEY in Vercel, not here.
+            {view.monnify && view.monnify !== "off" && (
+              <> <button type="button" className="btn ghost sm" disabled={busy === "monnify"} onClick={async () => { setBusy("monnify"); try { setMcheck(await checkMonnify()); } catch (e) { setError(e instanceof Error ? e.message : "Couldn't check."); } finally { setBusy(null); } }}>{busy === "monnify" ? "Checking…" : "Test the Monnify connection (free)"}</button></>
+            )}
+          </p>
+          {mcheck && (
+            <p className="tiny" role="status">
+              {mcheck.ok
+                ? <>Connected to Monnify ({mcheck.mode}). It lists {mcheck.monnifyBanks} banks and we could match {mcheck.matched} of our {mcheck.ours}.{mcheck.unmatched && mcheck.unmatched.length > 0 ? <> Not matched (these customers simply won&apos;t get a lookup): {mcheck.unmatched.join(", ")}.</> : null}</>
+                : <b>Couldn&apos;t connect: {mcheck.message}</b>}
+            </p>
+          )}
           <p className="tiny">The bank details are only used when online payment is off. Prices on the public form update when you save.</p>
         </section>
       </div>

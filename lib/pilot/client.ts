@@ -93,6 +93,7 @@ export interface SettingsView {
   settings: PilotSettings;
   smtp: { configured: boolean; host: string; user: string; hasPassword: boolean };
   paystack?: "off" | "test" | "live";
+  monnify?: "off" | "sandbox" | "live";
   registrars: { id: string; name: string; formEmail: string; companies: number }[];
 }
 
@@ -106,4 +107,9 @@ export async function saveSettings(patch: unknown): Promise<SettingsView> {
 
 export async function sendTestEmail(to: string): Promise<{ from: string; to: string }> {
   return (await (await authed("/api/pilot/settings/test-email", { method: "POST", body: JSON.stringify({ to }) })).json()) as { from: string; to: string };
+}
+
+export interface MonnifyCheck { mode: "off" | "sandbox" | "live"; ok: boolean; message?: string; base?: string; monnifyBanks?: number; ours?: number; matched?: number; unmatched?: string[] }
+export async function checkMonnify(): Promise<MonnifyCheck> {
+  return (await (await authed("/api/pilot/monnify-check")).json()) as MonnifyCheck;
 }

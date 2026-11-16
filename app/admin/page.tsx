@@ -265,6 +265,11 @@ export default function PilotAdmin() {
                 <div className="row"><span className="k">Mobile</span><span className="v">{sel.profile.phone1}</span></div>
                 <div className="row"><span className="k">BVN</span><span className="v">{sel.profile.bvn}</span></div>
                 <div className="row"><span className="k">Bank</span><span className="v">{sel.profile.bankName} {sel.profile.accountNumber}</span></div>
+                <div className="row"><span className="k">Bank check</span><span className="v">{!sel.verification ? "Not run (Monnify live keys needed, or forms not sent yet)"
+                  : sel.verification.status === "match" ? <>Account name matches the BVN record{sel.verification.percent != null ? ` (${sel.verification.percent}%)` : ""}</>
+                  : sel.verification.status === "partial" ? <b>Partly matches the BVN record{sel.verification.percent != null ? ` (${sel.verification.percent}%)` : ""}. Worth a look.</b>
+                  : sel.verification.status === "no_match" ? <b>Does not match the BVN record. Consider asking the customer to check the bank details.</b>
+                  : <>Not checked{sel.verification.note ? `: ${sel.verification.note}` : ""}</>}</span></div>
                 <div className="row"><span className="k">Address now</span><span className="v">{[sel.profile.address, sel.profile.city, sel.profile.state].filter(Boolean).join(", ")}</span></div>
                 <div className="row"><span className="k">Address then</span><span className="v">{sel.atPurchase.address}</span></div>
                 {sel.atPurchase.phone && <div className="row"><span className="k">Phone then</span><span className="v">{sel.atPurchase.phone}</span></div>}
