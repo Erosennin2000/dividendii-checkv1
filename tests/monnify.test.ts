@@ -44,12 +44,24 @@ describe("monnify", () => {
 
   it("looks up an account name, signing in with Basic auth and using Bearer after", async () => {
     fakeNetwork();
-    expect(await lookupAccountName("Access Bank", "0123456789")).toBe("TOLU ADEWALE BAKARE");
+    expect(await lookupAccountName("Access Bank", "0123456789")).toEqual({ status: "found", name: "TOLU ADEWALE BAKARE" });
     const login = calls.find((c) => c.url.endsWith("/auth/login"))!;
     expect((login.init!.headers as Record<string, string>).authorization).toBe("Basic " + Buffer.from("MK_TEST_X:SECRET").toString("base64"));
     expect(calls.find((c) => c.url.includes("/account/validate"))!.url).toContain("bankCode=044");
     expect(calls.find((c) => c.url.includes("/account/validate"))!.url.startsWith("https://api.monnify.com")).toBe(true);
-    expect(await lookupAccountName("Access Bank", "123")).toBeNull();
+    expect(await lookupAccountName("Access Bank", "123")).toEqual({ status: "unavailable" });
+  });
+
+  it("says not_found only for a plain no-such-account answer, and unavailable for everything else", async () => {
+    const bad = (status: number, msg: string) => () => new Response(JSON.stringify({ requestSuccessful: false, responseMessage: msg, responseCode: "99" }), { status });
+    fakeNetwork({ name: bad(400, "Invalid account number") });
+    expect(await lookupAccountName("Access Bank", "0123456789")).toEqual({ status: "not_found" });
+    fakeNetwork({ name: bad(500, "Invalid account number") });
+    expect(await lookupAccountName("Access Bank", "0123456789")).toEqual({ status: "unavailable" });
+    fakeNetwork({ name: bad(403, "IP not whitelisted") });
+    expect(await lookupAccountName("Access Bank", "0123456789")).toEqual({ status: "unavailable" });
+    fakeNetwork();
+    expect(await lookupAccountName("Some Unknown Microfinance", "0123456789")).toEqual({ status: "unavailable" });
   });
 
   it("matches a BVN and sends the right body", async () => {

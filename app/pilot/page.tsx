@@ -36,7 +36,7 @@ async function post<T>(url: string, body: unknown): Promise<T> {
   return data as T;
 }
 
-interface PublicCfg { open: boolean; mode: "test" | "live"; registrars: { id: string; name: string }[]; payAheadPerCompany: number; debitRatePercent: number; payOnline?: boolean; payMode?: "off" | "test" | "live" }
+interface PublicCfg { open: boolean; mode: "test" | "live"; registrars: { id: string; name: string }[]; payAheadPerCompany: number; debitRatePercent: number; payOnline?: boolean; payMode?: "off" | "test" | "live"; bankCheck?: boolean }
 /** Used until the server answers, and if it can't: every registrar on, the standard prices. */
 const DEFAULT_CFG: PublicCfg = { open: true, mode: "test", registrars: PILOT_REGISTRARS.map((r) => ({ id: r.id, name: r.name })), payAheadPerCompany: PAY_AHEAD_PER_COMPANY, debitRatePercent: DEBIT_RATE * 100 };
 
@@ -53,8 +53,8 @@ export default function PilotPage() {
   const [lead, setLead] = useState<{ id: string; demo: boolean } | null>(null);
   const [code, setCode] = useState("");
   const [token, setToken] = useState<string | null>(null);
-  // "The bank shows this account as ..." (free Monnify lookup). Information only: it never blocks anyone.
-  const [acctName, setAcctName] = useState<{ name: string; key: string } | null>(null);
+  // "The bank shows this account as ..." (free Monnify lookup). Only a clear "no such account" stops step 3; a name mismatch or a failed lookup never does.
+  const [acctCheck, setAcctCheck] = useState<{ status: "found" | "not_found" | "unavailable"; name: string | null; key: string } | null>(null);
   // Step 2
   const [regName, setRegName] = useState("");
   const [held, setHeld] = useState<Held[]>([]);
@@ -154,16 +154,28 @@ export default function PilotPage() {
 
   useEffect(() => {
     const bank = profile.bankName, acct = profile.accountNumber;
-    if (step !== 3 || !token || !bank || acct.length !== 10) { setAcctName(null); return; }
+    if (step !== 3 || !token || !bank || acct.length !== 10) { setAcctCheck(null); return; }
     let live = true;
+    const key = bank + "|" + acct;
     const t = setTimeout(async () => {
       try {
-        const r = await post<{ name: string | null }>("/api/pilot/lookup", { token, bank, accountNumber: acct });
-        if (live) setAcctName(r.name ? { name: r.name, key: bank + "|" + acct } : null);
-      } catch { if (live) setAcctName(null); }
+        const r = await post<{ status: "found" | "not_found" | "unavailable"; name: string | null }>("/api/pilot/lookup", { token, bank, accountNumber: acct });
+        if (live) setAcctCheck({ status: r.status, name: r.name, key });
+      } catch { if (live) setAcctCheck({ status: "unavailable", name: null, key }); }
     }, 500);
     return () => { live = false; clearTimeout(t); };
   }, [step, token, profile.bankName, profile.accountNumber]);
+
+  // Account check for the current bank + number. Only "not_found" blocks; while we are still asking, the button waits a moment.
+  const acctKey = profile.bankName + "|" + profile.accountNumber;
+  const acctNow = acctCheck && acctCheck.key === acctKey ? acctCheck : null;
+  const bankChosen = profile.bankName.trim().length > 0;
+  const bankChecking = cfg.bankCheck && bankChosen && profile.accountNumber.length === 10 && !acctNow;
+  const step3Problems = [
+    ...problems[3],
+    ...(acctNow?.status === "not_found" ? ["an account number the bank can find"] : []),
+    ...(bankChecking ? ["a moment while we check the account"] : []),
+  ];
 
   const waitingForCode = step === 1 && lead && !token;
 
@@ -273,12 +285,6 @@ export default function PilotPage() {
         <section className="card">
           <h1>Your details</h1>
           <p className="lede">The registrar needs these to match you to the register and to pay you. Write them as your bank holds them.</p>
-          <div className="field-row">
-            <TextField label="BVN" value={profile.bvn} onChange={digits("bvn", 11)} inputMode="numeric" placeholder="11 digits" />
-            <TextField label="Account number" value={profile.accountNumber} onChange={digits("accountNumber", 10)} inputMode="numeric" placeholder="10 digits"
-              hint={profile.accountNumber.length === 10 ? "Looks right." : `${profile.accountNumber.length} of 10 digits`}
-              error={profile.accountNumber.length > 0 && profile.accountNumber.length < 10 ? "An account number has exactly 10 digits." : undefined} />
-          </div>
           <div className="field">
             <label htmlFor="bank">Bank</label>
             <select id="bank" className="input" value={bankOther ? OTHER_BANK : bankListed ? profile.bankName : ""}
@@ -288,16 +294,29 @@ export default function PilotPage() {
               <option value={OTHER_BANK}>{OTHER_BANK}</option>
             </select>
             {bankOther && <input className="input" style={{ marginTop: 8 }} placeholder="Type your bank's name" value={profile.bankName} onChange={(e) => set("bankName")(e.target.value)} />}
-            {acctName && acctName.key === profile.bankName + "|" + profile.accountNumber && (() => {
-              const shown = acctName.name.toUpperCase();
-              const looksRight = shown.includes(profile.surname.trim().toUpperCase()) || shown.includes(profile.firstName.trim().toUpperCase());
-              return (
-                <p className="tiny" role="status" style={{ marginTop: 8 }}>
-                  The bank shows this account as <b>{acctName.name}</b>. {looksRight ? "That looks like you." : "That doesn't look like your name. Please check the account number and the bank."}
-                </p>
-              );
-            })()}
           </div>
+          <div className="field-row">
+            <TextField label="BVN" value={profile.bvn} onChange={digits("bvn", 11)} inputMode="numeric" placeholder="11 digits" />
+            <TextField label="Account number" value={profile.accountNumber} onChange={digits("accountNumber", 10)} inputMode="numeric"
+              disabled={!bankChosen} placeholder={bankChosen ? "10 digits" : "Choose your bank first"}
+              hint={!bankChosen ? "Choose your bank first, then type the account number."
+                : profile.accountNumber.length < 10 ? `${profile.accountNumber.length} of 10 digits`
+                : bankChecking ? "Checking with your bank…"
+                : acctNow?.status === "found" ? "Account found."
+                : acctNow?.status === "unavailable" ? "10 digits. We couldn't check it with the bank just now, you can carry on."
+                : "10 digits."}
+              error={profile.accountNumber.length > 0 && profile.accountNumber.length < 10 ? "An account number has exactly 10 digits."
+                : acctNow?.status === "not_found" ? "We couldn't find this account at this bank. Please check the number and the bank." : undefined} />
+          </div>
+          {acctNow?.status === "found" && acctNow.name && (() => {
+            const shown = acctNow.name.toUpperCase();
+            const looksRight = shown.includes(profile.surname.trim().toUpperCase()) || shown.includes(profile.firstName.trim().toUpperCase());
+            return (
+              <p className="tiny" role="status" style={{ marginTop: -4, marginBottom: 12 }}>
+                The bank shows this account as <b>{acctNow.name}</b>. {looksRight ? "That looks like you." : "That doesn't look like your name. Please check the account number and the bank."}
+              </p>
+            );
+          })()}
           <TextField label="Home address now" value={profile.address} onChange={set("address")} placeholder="House number, street and area" autoComplete="street-address" />
           <div className="field-row three">
             <TextField label="City or town" value={profile.city} onChange={set("city")} autoComplete="address-level2" />
@@ -315,7 +334,7 @@ export default function PilotPage() {
             <TextField label="Relationship" value={at.nextOfKinRelationship} onChange={setA("nextOfKinRelationship")} placeholder="e.g. Spouse, mother" />
             <TextField label="Their phone" value={at.nextOfKinPhone} onChange={setA("nextOfKinPhone")} type="tel" inputMode="tel" placeholder="Optional" />
           </div>
-          <Nav back={() => go(2)} next={() => go(4)} problems={problems[3]} />
+          <Nav back={() => go(2)} next={() => go(4)} problems={step3Problems} />
         </section>
       )}
 

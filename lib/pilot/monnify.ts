@@ -26,7 +26,7 @@ let fetchOverride: Fetch | null = null;
 export const setMonnifyFetchForTests = (f: Fetch | null) => { fetchOverride = f; token = null; banksCache = null; };
 
 export class MonnifyError extends Error {
-  constructor(message: string, readonly code?: string) { super(message); }
+  constructor(message: string, readonly code?: string, readonly status?: number) { super(message); }
 }
 
 let token: { value: string; until: number } | null = null;
@@ -52,7 +52,7 @@ async function call<T>(path: string, init: RequestInit = {}, retry = true): Prom
   });
   if (res.status === 401 && retry) { token = null; return call<T>(path, init, false); }
   const body = (await res.json().catch(() => null)) as { requestSuccessful?: boolean; responseMessage?: string; responseCode?: string; responseBody?: T } | null;
-  if (!res.ok || !body?.requestSuccessful || body.responseBody === undefined) throw new MonnifyError(body?.responseMessage || `Monnify replied ${res.status}.`, body?.responseCode);
+  if (!res.ok || !body?.requestSuccessful || body.responseBody === undefined) throw new MonnifyError(body?.responseMessage || `Monnify replied ${res.status}.`, body?.responseCode, res.status);
   return body.responseBody;
 }
 
@@ -96,12 +96,25 @@ export function unmatchedBanks(ours: string[], banks: MonnifyBank[]) {
 }
 
 // ---------- 1. account name lookup (free)
-export async function lookupAccountName(bankName: string, accountNumber: string): Promise<string | null> {
-  if (!/^\d{10}$/.test(accountNumber)) return null;
-  const code = bankCodeFor(bankName, await monnifyBanks());
-  if (!code) return null;
-  const r = await call<{ accountName?: string }>(`/api/v1/disbursements/account/validate?accountNumber=${accountNumber}&bankCode=${encodeURIComponent(code)}`);
-  return r.accountName?.trim() || null;
+export type AccountLookup = { status: "found"; name: string } | { status: "not_found" } | { status: "unavailable" };
+
+/**
+ * "found": the bank gave us a name. "not_found": Monnify answered and says there is no such account at that bank.
+ * "unavailable": anything else (off, bank not in Monnify's list, sign-in or network trouble, rate limit): we cannot tell, so callers must not block.
+ */
+export async function lookupAccountName(bankName: string, accountNumber: string): Promise<AccountLookup> {
+  if (!/^\d{10}$/.test(accountNumber)) return { status: "unavailable" };
+  try {
+    const code = bankCodeFor(bankName, await monnifyBanks());
+    if (!code) return { status: "unavailable" };
+    const r = await call<{ accountName?: string }>(`/api/v1/disbursements/account/validate?accountNumber=${accountNumber}&bankCode=${encodeURIComponent(code)}`);
+    const name = r.accountName?.trim();
+    return name ? { status: "found", name } : { status: "not_found" };
+  } catch (e) {
+    // Only a plain "no such account" answer counts. Auth, permission, rate-limit, server and network errors never do.
+    if (e instanceof MonnifyError && (e.status === 400 || e.status === 404 || e.status === 422) && /account|not found|invalid|unable to (resolve|verify)|could not/i.test(e.message)) return { status: "not_found" };
+    return { status: "unavailable" };
+  }
 }
 
 // ---------- 2. BVN and account name match (₦10)

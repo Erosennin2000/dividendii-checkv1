@@ -13,9 +13,10 @@ interface TextFieldProps {
   inputMode?: HTMLAttributes<HTMLInputElement>["inputMode"];
   maxLength?: number;
   autoComplete?: string;
+  disabled?: boolean;
 }
 
-export function TextField({ label, value, onChange, placeholder, hint, error, type = "text", inputMode, maxLength, autoComplete }: TextFieldProps) {
+export function TextField({ label, value, onChange, placeholder, hint, error, type = "text", inputMode, maxLength, autoComplete, disabled }: TextFieldProps) {
   const id = useId();
   return (
     <div className="field">
@@ -23,7 +24,7 @@ export function TextField({ label, value, onChange, placeholder, hint, error, ty
       <input
         id={id} className={error ? "input invalid" : "input"} value={value} type={type}
         onChange={(e) => onChange(e.target.value)} placeholder={placeholder} inputMode={inputMode}
-        maxLength={maxLength} autoComplete={autoComplete} aria-invalid={!!error}
+        maxLength={maxLength} autoComplete={autoComplete} aria-invalid={!!error} disabled={disabled}
         aria-describedby={error || hint ? `${id}-note` : undefined}
       />
       {error ? <div id={`${id}-note`} className="field-error">{error}</div> : hint ? <div id={`${id}-note`} className="hint">{hint}</div> : null}
