@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { bankCodeFor, lookupAccountName, matchBvn, monnifyMode, monnifyOn, setMonnifyFetchForTests, type MonnifyBank } from "@/lib/pilot/monnify";
+import { bankCodeFor, lookupAccountName, matchBank, matchBvn, monnifyMode, monnifyOn, rawAccountLookup, setMonnifyFetchForTests, suggestBanks, unmatchedBanks, type MonnifyBank } from "@/lib/pilot/monnify";
 
 const BANKS: MonnifyBank[] = [
   { name: "Access Bank", code: "044" }, { name: "Zenith bank PLC", code: "057" }, { name: "Guaranty Trust Bank", code: "058" },
@@ -92,5 +92,72 @@ describe("monnify", () => {
     expect((await matchBvn("123", "Access Bank", "0123456789")).status).toBe("unchecked");
     expect((await matchBvn("22212345678", "Nope Bank", "0123456789")).status).toBe("unchecked");
     expect(calls.some((c) => c.url.endsWith("/bvn-account-match"))).toBe(false);
+  });
+
+  it("never says 'no such account' on sandbox keys, even for a plain no-such-account reply", async () => {
+    env.MONNIFY_BASE_URL = "https://sandbox.monnify.com";
+    fakeNetwork({ name: () => new Response(JSON.stringify({ requestSuccessful: false, responseMessage: "Invalid account number", responseCode: "99" }), { status: 400 }) });
+    expect(await lookupAccountName("Guaranty Trust Bank (GTBank)", "0123456789")).toEqual({ status: "unavailable" });
+    expect(calls.some((c) => c.url.startsWith("https://sandbox.monnify.com") && c.url.includes("/account/validate"))).toBe(true);
+  });
+
+  it("does not treat 'invalid bank code', sign-in or wallet replies as a missing account", async () => {
+    for (const msg of ["Invalid bank code", "Invalid credentials", "Insufficient wallet balance", "IP address not whitelisted"]) {
+      fakeNetwork({ name: () => new Response(JSON.stringify({ requestSuccessful: false, responseMessage: msg, responseCode: "99" }), { status: 400 }) });
+      expect(await lookupAccountName("Access Bank", "0123456789")).toEqual({ status: "unavailable" });
+    }
+    fakeNetwork({ name: () => new Response(JSON.stringify({ requestSuccessful: false, responseMessage: "Unable to resolve account name", responseCode: "99" }), { status: 422 }) });
+    expect(await lookupAccountName("Access Bank", "0123456789")).toEqual({ status: "not_found" });
+  });
+
+  it("looks up a bank that is only a close match, but never lets that block anyone", async () => {
+    const list: MonnifyBank[] = [...BANKS, { name: "Kuda Digital Bank", code: "090267" }];
+    expect(matchBank("Kuda Microfinance Bank", list)).toMatchObject({ code: "090267", confidence: "fuzzy" });
+    setMonnifyFetchForTests(async (url) => {
+      if (url.endsWith("/auth/login")) return ok({ accessToken: "tok", expiresIn: 3600 });
+      if (url.endsWith("/api/v1/banks")) return ok(list);
+      return new Response(JSON.stringify({ requestSuccessful: false, responseMessage: "Invalid account number", responseCode: "99" }), { status: 400 });
+    });
+    expect(await lookupAccountName("Kuda Microfinance Bank", "0123456789")).toEqual({ status: "unavailable" });
+    expect(await lookupAccountName("Access Bank", "0123456789")).toEqual({ status: "not_found" }); // an exact match still can block
+  });
+
+  it("ignores spacing, filler words and uses known alternative names", () => {
+    const list: MonnifyBank[] = [
+      { name: "MintFinex Microfinance Bank", code: "1" }, { name: "9 Payment Service Bank", code: "2" }, { name: "OPay Digital Services Limited", code: "3" },
+      { name: "Wema Bank", code: "035" }, { name: "Titan Trust Bank", code: "4" }, { name: "Hope PSB", code: "5" }, { name: "Paycom", code: "100004" },
+    ];
+    expect(bankCodeFor("Mint Finex MFB", list)).toBe("1");
+    expect(bankCodeFor("9PSB (9 Payment Service Bank)", list)).toBe("2");
+    expect(bankCodeFor("OPay Digital Services", list)).toBe("3");
+    expect(bankCodeFor("ALAT by Wema", list)).toBe("035");
+    expect(bankCodeFor("Titan Trust Bank", list)).toBe("4");
+    expect(bankCodeFor("Hope PSB", list)).toBe("5");
+    expect(unmatchedBanks(["Peace Microfinance Bank", "Hope PSB"], list)).toEqual(["Peace Microfinance Bank"]);
+  });
+
+  it("never picks a bank when two fit equally well", () => {
+    const two: MonnifyBank[] = [{ name: "Alpha Digital Bank", code: "1" }, { name: "Alpha Services Bank", code: "2" }];
+    expect(bankCodeFor("Alpha Microfinance Bank", two)).toBeNull();
+  });
+
+  it("suggests the closest names in Monnify's list for a bank it could not match", () => {
+    const list: MonnifyBank[] = [{ name: "Page Financial Services", code: "7" }, { name: "Paga", code: "8" }, { name: "Zenith bank PLC", code: "057" }];
+    const near = suggestBanks("Page Financials", list);
+    expect(near[0]).toEqual({ name: "Page Financial Services", code: "7" });
+    expect(near.some((n) => n.name.startsWith("Zenith"))).toBe(false);
+  });
+
+  it("'try one account' shows the match and what Monnify said, and never throws", async () => {
+    fakeNetwork();
+    const ok1 = await rawAccountLookup("Access Bank", "0123456789");
+    expect(ok1).toMatchObject({ verdict: "found", name: "TOLU ADEWALE BAKARE", mode: "live", bankMatch: { code: "044", confidence: "exact" } });
+    fakeNetwork({ name: () => new Response(JSON.stringify({ requestSuccessful: false, responseMessage: "Invalid account number", responseCode: "99" }), { status: 400 }) });
+    expect(await rawAccountLookup("Access Bank", "0123456789")).toMatchObject({ verdict: "not_found", httpStatus: 400, monnifyMessage: "Invalid account number" });
+    expect(await rawAccountLookup("Nope Bank", "0123456789")).toMatchObject({ verdict: "unavailable", bankMatch: null });
+    setMonnifyFetchForTests(async () => { throw new Error("network down"); });
+    expect((await rawAccountLookup("Access Bank", "0123456789")).verdict).toBe("unavailable");
+    delete env.MONNIFY_API_KEY;
+    expect(await rawAccountLookup("Access Bank", "0123456789")).toMatchObject({ verdict: "unavailable", mode: "off" });
   });
 });

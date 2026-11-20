@@ -1,5 +1,4 @@
 import { withBase } from "@/lib/base";
-import { auth } from "@/lib/auth";
 import { saveBlob } from "@/lib/forms/client";
 import type { PilotSettings } from "./settingsShared";
 import type { PilotFeedback, PilotLeadView, PilotSubmission } from "./types";
@@ -22,7 +21,7 @@ export async function adminSignIn(email: string, password: string): Promise<bool
 }
 
 async function authed(url: string, init: RequestInit = {}) {
-  const token = adminToken.get() ?? (auth.idToken ? await auth.idToken() : null);
+  const token = adminToken.get();
   const res = await fetch(withBase(url), { ...init, headers: { "content-type": "application/json", ...(init.headers ?? {}), ...(token ? { authorization: `Bearer ${token}` } : {}) } });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
@@ -50,6 +49,50 @@ export async function downloadFile(id: string, name: string, filename: string) {
 export async function fileUrl(id: string, name: string): Promise<string> {
   const res = await authed(`/api/pilot/submissions/${id}/file?name=${encodeURIComponent(name)}&inline=1`);
   return URL.createObjectURL(await res.blob());
+}
+
+/** Pulls one whole table from the server, a page at a time (each page is small enough for Vercel's reply limit). */
+async function pullAll<T>(kind: "submissions" | "leads" | "feedback"): Promise<T[]> {
+  const out: T[] = [];
+  let offset: number | null = 0;
+  while (offset !== null) {
+    const j: { rows: T[]; next: number | null } = await (await authed(`/api/pilot/export?kind=${kind}&offset=${offset}`)).json();
+    out.push(...j.rows);
+    offset = j.next;
+  }
+  return out;
+}
+
+export interface Backup { exportedAt: string; counts: Record<string, number>; submissions: PilotSubmission[]; leads: PilotLeadView[]; feedback: PilotFeedback[]; settings: unknown; pdfs: PdfEntry[] }
+export interface PdfEntry { reference: string; submissionId: string; name: string; email: string; registrar: string; kind: string; filename: string; storagePath: string }
+
+/** Every record we hold plus the list of PDFs (the PDFs themselves stay in Supabase Storage). */
+export async function buildBackup(): Promise<Backup> {
+  const [submissions, leads, feedback, settings] = await Promise.all([
+    pullAll<PilotSubmission>("submissions"), pullAll<PilotLeadView>("leads"), pullAll<PilotFeedback>("feedback"),
+    authed("/api/pilot/export?kind=settings").then(async (r) => ((await r.json()).rows as unknown[])[0] ?? {}),
+  ]);
+  const pdfs: PdfEntry[] = submissions.flatMap((s) => (s.files ?? []).map((f) => ({
+    reference: s.ref, submissionId: s.id, name: `${s.profile.firstName} ${s.profile.surname}`, email: s.profile.email,
+    registrar: f.registrarId, kind: f.kind, filename: f.filename, storagePath: f.path,
+  })));
+  return { exportedAt: new Date().toISOString(), counts: { submissions: submissions.length, leads: leads.length, feedback: feedback.length, pdfs: pdfs.length }, submissions, leads, feedback, settings, pdfs };
+}
+
+const qq = (v: string | number) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+export function pdfListCsv(pdfs: PdfEntry[]): string {
+  const head = ["Reference", "Name", "Email", "Registrar", "Form", "File name", "Storage path"];
+  return [head, ...pdfs.map((p) => [p.reference, p.name, p.email, p.registrar, p.kind, p.filename, p.storagePath])].map((r) => r.map(qq).join(",")).join("\r\n");
+}
+
+/** Downloads the full backup file and a spreadsheet list of the PDFs. Returns the counts for the message. */
+export async function downloadBackup(): Promise<Backup["counts"]> {
+  const b = await buildBackup();
+  const day = b.exportedAt.slice(0, 10);
+  saveBlob(new Blob([JSON.stringify(b, null, 2)], { type: "application/json" }), `dividendii-backup-${day}.json`);
+  await new Promise((r) => setTimeout(r, 700));
+  saveBlob(new Blob([pdfListCsv(b.pdfs)], { type: "text/csv" }), `dividendii-pdf-list-${day}.csv`);
+  return b.counts;
 }
 
 const q = (v: string | number) => `"${String(v ?? "").replace(/"/g, '""')}"`;
@@ -109,7 +152,18 @@ export async function sendTestEmail(to: string): Promise<{ from: string; to: str
   return (await (await authed("/api/pilot/settings/test-email", { method: "POST", body: JSON.stringify({ to }) })).json()) as { from: string; to: string };
 }
 
-export interface MonnifyCheck { mode: "off" | "sandbox" | "live"; ok: boolean; message?: string; base?: string; monnifyBanks?: number; ours?: number; matched?: number; unmatched?: string[] }
+export interface MonnifyCheck {
+  mode: "off" | "sandbox" | "live"; ok: boolean; message?: string; base?: string; monnifyBanks?: number; ours?: number; matched?: number;
+  unmatched?: string[]; unmatchedDetail?: { name: string; near: { name: string; code: string }[] }[];
+}
 export async function checkMonnify(): Promise<MonnifyCheck> {
   return (await (await authed("/api/pilot/monnify-check")).json()) as MonnifyCheck;
+}
+
+export interface MonnifyTry {
+  verdict: "found" | "not_found" | "unavailable"; name?: string; note: string; httpStatus?: number; monnifyMessage?: string;
+  bankMatch: { code: string; name: string; confidence: "exact" | "fuzzy" } | null; mode: "off" | "sandbox" | "live"; base: string;
+}
+export async function tryMonnifyAccount(bank: string, accountNumber: string): Promise<MonnifyTry> {
+  return (await (await authed("/api/pilot/monnify-check", { method: "POST", body: JSON.stringify({ bank, accountNumber }) })).json()) as MonnifyTry;
 }

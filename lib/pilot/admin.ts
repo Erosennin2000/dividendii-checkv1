@@ -1,5 +1,4 @@
 import "server-only";
-import { DATA_SOURCE } from "@/lib/config";
 import { supabaseEnv } from "./supabase";
 
 export class AdminError extends Error {
@@ -15,7 +14,7 @@ export function adminEmails(): string[] {
 /** True when staff sign in with a Supabase Auth account (email and password). */
 export function usesSupabaseAuth(): boolean {
   const want = (process.env.PILOT_STORE ?? "").trim().toLowerCase();
-  return !!supabaseEnv() && want !== "firebase" && want !== "memory";
+  return !!supabaseEnv() && want !== "memory";
 }
 
 /** Signs a staff member in with Supabase Auth. Returns the access token the staff page sends with every request. */
@@ -46,11 +45,6 @@ export async function requirePilotAdmin(req: Request): Promise<void> {
     if (!res.ok) throw new AdminError(401, "Your session has ended. Sign in again.");
     const email = String(((await res.json()) as { email?: string }).email ?? "").toLowerCase();
     if (!adminEmails().includes(email)) throw new AdminError(403, "That account isn't on the staff list.");
-    return;
-  }
-  if (DATA_SOURCE === "firebase") {
-    const { caller, requireOps, HttpError } = await import("@/lib/server/http");
-    try { requireOps(await caller(req)); } catch (e) { if (e instanceof HttpError) throw new AdminError(e.status, e.message); throw e; }
     return;
   }
   if (process.env.NODE_ENV === "production") throw new AdminError(401, "Staff sign-in isn't configured. Set the Supabase keys.");

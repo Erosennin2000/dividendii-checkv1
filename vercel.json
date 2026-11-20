@@ -1,0 +1,5 @@
+{
+  "crons": [
+    { "path": "/check/api/pilot/keepalive", "schedule": "17 6 * * 1" }
+  ]
+}

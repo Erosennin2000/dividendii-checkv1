@@ -22,7 +22,8 @@ Easiest and free: create a mailbox in cPanel (Email Accounts), for example `supp
 ## 4. Test, then go live
 - Open https://www.dividendii.com/check, run through with your own details. In test mode every registrar email goes to `PILOT_TEST_EMAIL`. The email code is `123456`.
 - Check /check/admin: sign in, open the submission, look at both PDFs.
-- To go live: set `PILOT_OTP=email`, `PILOT_MODE=live`, set `PILOT_SECRET`, redeploy. Do not do this before your lawyer has read the privacy notice and the Letter of Authority wording (`lib/pilot/authority.ts`).
+- To go live: set `PILOT_MODE=live`, set `PILOT_SECRET`, redeploy. Do not do this before your lawyer has read the privacy notice and the Letter of Authority wording (`lib/pilot/authority.ts`).
+- **The test code 123456 can no longer work once you are live.** If `PILOT_MODE` is `live`, or the Paystack key is a live one (`sk_live_...`), or the Settings page is set to live, the app always emails a random code and refuses 123456, even if `PILOT_OTP` was left on `demo`. Check it once after going live: ask for a code with a spare email address and confirm the code arrives by email.
 
 ## 5. Payments (Paystack)
 How it works: at step 4 the app works out the start fee (₦150 per company plus 7.5% VAT), saves the forms, and sends the person to Paystack's page. The forms go to the registrars only after Paystack confirms the payment. The 5% success fee is asked for later from the staff page.
@@ -74,10 +75,17 @@ To switch it on:
 1. In Monnify, open **Developer > API Keys** and copy the **API Key** and **Secret Key** (use the LIVE ones, Monnify's BVN checks have no sandbox).
 2. In Vercel, open the **check app** project > **Settings > Environment Variables** and add `MONNIFY_API_KEY` and `MONNIFY_SECRET_KEY` (and `MONNIFY_CONTRACT_CODE` if you like; these two checks don't use it). Redeploy.
 3. Top up the Monnify wallet with a small amount (N2,000 to N5,000 is plenty to start). Without it, only the BVN match is skipped.
-4. Open the staff page > **Settings**. Under the bank details you will see "Bank checks (Monnify)" and a **Test the Monnify connection (free)** button. It signs in, downloads Monnify's bank list and tells you how many of our banks it could match. Any it can't match simply won't get a lookup.
+4. Open the staff page > **Settings**. Under the bank details you will see "Bank checks (Monnify)" and a **Test the Monnify connection (free)** button. It signs in, downloads Monnify's bank list and tells you how many of our banks it could match. For any it can't match with confidence it lists the nearest Monnify names, so you can tell me which to link. A bank matched only by a close (not exact) name still gets a lookup, but a "not found" from it never stops a customer; only a clear "no such account" answer on a confidently matched bank, on live keys, shows the customer a warning.
+   Below that there is **Try one account (free)**: type a bank and a 10-digit account number and it shows exactly what a customer would see, plus Monnify's own status and message. Use it with a real account of yours before going live. Sandbox (test) keys return made-up names, so a "found" there proves nothing.
 5. Try step 3 with a real account number. You should see "The bank shows this account as ...".
 
 Each BVN check in test mode also costs N10 (it is a real call), so test with a handful only.
+
+## 8. Backup and keeping the free database awake
+
+- **Backup:** open /check/admin and press **Download backup**. It saves two files to your computer: one full backup of every record (submissions, leads, feedback, settings; passwords and codes are left out) and one spreadsheet listing every PDF with its customer. The backup holds BVN, bank and phone details, so keep it somewhere private and delete old copies. The PDFs themselves stay in Supabase Storage; open any submission to download its PDFs. Supabase's free plan has **no automatic backups**, so press this button regularly (weekly while you are live is sensible).
+- **Keep-alive:** Supabase's free plan pauses a project after a week with no activity. `vercel.json` in this app has a weekly job (Mondays) that calls `/check/api/pilot/keepalive`, which reads one record and returns nothing else. After deploying, open Vercel > this project > **Settings > Cron Jobs** and confirm the job is listed. If it isn't, any free pinger that opens `https://www.dividendii.com/check/api/pilot/keepalive` once a week does the same. Real customers also keep it awake.
+- If the project ever shows as paused, press **Restore** in Supabase. Nothing is lost on a pause.
 
 ## Things to know
 - Fees shown: ₦150 per company plus 7.5% VAT, paid at step 4 before the forms are sent; then 5% when they are paid. Defaults live in `lib/pilot/config.ts` and can be changed at /check/admin/settings.

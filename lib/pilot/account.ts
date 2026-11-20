@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash, createHmac, randomBytes, randomInt, scryptSync, timingSafeEqual } from "node:crypto";
 import { isEmail } from "@/lib/domain/validation";
-import { DEMO_CODE, leadIdFor, otpMode } from "./leads";
+import { DEMO_CODE, leadIdFor, otpModeFor } from "./leads";
 import { pilotEnv, type Mailer } from "./mail";
 import { effectiveSettings } from "./settings";
 import type { PilotStore } from "./store";
@@ -126,7 +126,7 @@ export async function sendAccountCode(email: string, deps: { store: PilotStore; 
   const e = clean(email, 160).toLowerCase();
   if (!isEmail(e)) throw new AccountError("Enter the email address you used on the form.");
   const lead = await deps.store.getLead(leadIdFor(e));
-  const demo = otpMode() === "demo";
+  const demo = (await otpModeFor(deps.store)) === "demo";
   if (!lead || !lead.verifiedAt) return { demo };
   const code = demo ? DEMO_CODE : String(randomInt(100000, 1000000));
   await deps.store.saveLead({ ...lead, codeHash: codeHash(code, lead.id), codeExpires: new Date(now.getTime() + CODE_TTL_MS).toISOString(), attempts: 0, updatedAt: now.toISOString() });
@@ -160,7 +160,9 @@ export async function setPassword(
     if (!lead || !lead.codeHash) throw new AccountError("That code isn't right, or has been used. Ask for a new one.");
     if (lead.attempts >= MAX_ATTEMPTS) throw new AccountError("Too many wrong codes. Ask for a new one.");
     if (!lead.codeExpires || new Date(lead.codeExpires) < now) throw new AccountError("That code has expired. Ask for a new one.");
-    if (codeHash(clean(input.code, 12), lead.id) !== lead.codeHash) {
+    const given = clean(input.code, 12);
+    const demoRefused = given === DEMO_CODE && (await otpModeFor(store)) === "email"; // a demo code issued before going live must not work after
+    if (demoRefused || codeHash(given, lead.id) !== lead.codeHash) {
       await store.saveLead({ ...lead, attempts: lead.attempts + 1, updatedAt: now.toISOString() });
       throw new AccountError("That code isn't right. Check it and try again.");
     }

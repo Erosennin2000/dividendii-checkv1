@@ -1,5 +1,4 @@
 import "server-only";
-import { DATA_SOURCE } from "@/lib/config";
 import type { StoredSettings } from "./settingsShared";
 import type { PilotFeedback, PilotLead, PilotSubmission } from "./types";
 
@@ -30,11 +29,16 @@ export interface PilotStore {
   /** What the admin saved on the settings page, or null if nothing yet. */
   getSettings(): Promise<StoredSettings | null>;
   saveSettings(s: StoredSettings): Promise<void>;
+  /** One page of a whole table for the staff backup, oldest first so pages don't shift as new rows arrive. Max 500 a page. */
+  exportPage(kind: ExportKind, offset: number, limit: number): Promise<unknown[]>;
 }
+
+export type ExportKind = "submissions" | "leads" | "feedback";
+export const EXPORT_KINDS: ExportKind[] = ["submissions", "leads", "feedback"];
 
 const plain = <T>(v: T): T => JSON.parse(JSON.stringify(v)); // Firestore rejects undefined fields
 
-/** Local dev with no Firebase: lives in the server process, gone on restart. */
+/** Local dev with no database: lives in the server process, gone on restart. */
 export function memoryStore(): PilotStore {
   const g = globalThis as unknown as { __pilotMem?: { subs: Map<string, PilotSubmission>; files: Map<string, Uint8Array>; leads: Map<string, PilotLead> } };
   const mem = (g.__pilotMem ??= { subs: new Map(), files: new Map(), leads: new Map() }) as { subs: Map<string, PilotSubmission>; files: Map<string, Uint8Array>; leads: Map<string, PilotLead>; feedback?: Map<string, PilotFeedback> };
@@ -62,6 +66,12 @@ export function memoryStore(): PilotStore {
     },
     async saveFeedback(f) { fb.set(f.id, plain(f)); },
     async listFeedback(limit = 500) { return [...fb.values()].sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit).map(plain); },
+    async exportPage(kind, offset, limit) {
+      const rows = kind === "submissions" ? [...mem.subs.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        : kind === "leads" ? [...mem.leads.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        : [...fb.values()].sort((a, b) => a.at.localeCompare(b.at));
+      return rows.slice(offset, offset + limit).map(plain);
+    },
     async readFile(path) {
       const f = mem.files.get(path);
       if (!f) throw new Error("File not found.");
@@ -73,55 +83,6 @@ export function memoryStore(): PilotStore {
     async getLead(id) { const l = mem.leads.get(id); return l ? plain(l) : null; },
     async listLeads(limit = 1000) {
       return [...mem.leads.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit).map(plain);
-    },
-  };
-}
-
-/** Firestore for the record, Storage for the PDFs. Server (service account) only. */
-export async function firebaseStore(): Promise<PilotStore> {
-  const { adminBucket, adminDb } = await import("@/lib/firebase/admin");
-  const col = () => adminDb().collection(PILOT_COLLECTION);
-  return {
-    async save(sub, files) {
-      // Files first: a record must never point at a PDF that isn't there.
-      for (const f of files) await adminBucket().file(f.path).save(Buffer.from(f.bytes), { contentType: f.contentType, resumable: false });
-      await col().doc(sub.id).set(plain(sub));
-    },
-    async update(id, patch) { await col().doc(id).update(plain(patch) as Record<string, unknown>); },
-    async get(id) {
-      const d = await col().doc(id).get();
-      return d.exists ? (d.data() as PilotSubmission) : null;
-    },
-    async list(limit = 500) {
-      const snap = await col().orderBy("createdAt", "desc").limit(limit).get();
-      return snap.docs.map((d) => d.data() as PilotSubmission);
-    },
-    async listByEmail(email) {
-      const snap = await col().where("profile.email", "==", email.trim().toLowerCase()).get();
-      return snap.docs.map((d) => d.data() as PilotSubmission).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    },
-    async saveFeedback(f) { await adminDb().collection(FEEDBACK_COLLECTION).doc(f.id).set(plain(f)); },
-    async listFeedback(limit = 500) {
-      const snap = await adminDb().collection(FEEDBACK_COLLECTION).orderBy("at", "desc").limit(limit).get();
-      return snap.docs.map((d) => d.data() as PilotFeedback);
-    },
-    async readFile(path) {
-      const [buf] = await adminBucket().file(path).download();
-      return new Uint8Array(buf);
-    },
-    async getSettings() {
-      const d = await adminDb().collection(SETTINGS_COLLECTION).doc(SETTINGS_DOC).get();
-      return d.exists ? (d.data() as StoredSettings) : null;
-    },
-    async saveSettings(st) { await adminDb().collection(SETTINGS_COLLECTION).doc(SETTINGS_DOC).set(plain(st)); },
-    async saveLead(lead) { await adminDb().collection(LEADS_COLLECTION).doc(lead.id).set(plain(lead)); },
-    async getLead(id) {
-      const d = await adminDb().collection(LEADS_COLLECTION).doc(id).get();
-      return d.exists ? (d.data() as PilotLead) : null;
-    },
-    async listLeads(limit = 1000) {
-      const snap = await adminDb().collection(LEADS_COLLECTION).orderBy("updatedAt", "desc").limit(limit).get();
-      return snap.docs.map((d) => d.data() as PilotLead);
     },
   };
 }
@@ -171,6 +132,10 @@ export async function supabaseStore(): Promise<PilotStore> {
       try { await upsertRow("pilot_settings", { id: "main", updated_at: new Date().toISOString(), data: plain(st) }); }
       catch (e) { throw new Error("Couldn't save settings. In Supabase, open SQL Editor and run supabase/pilot.sql once more to create the settings table. " + (e instanceof Error ? e.message.slice(0, 120) : "")); }
     },
+    async exportPage(kind, offset, limit) {
+      const [table, order] = kind === "submissions" ? ["pilot_submissions", "created_at.asc,id.asc"] : kind === "leads" ? ["pilot_leads", "updated_at.asc,id.asc"] : ["pilot_feedback", "at.asc,id.asc"];
+      return (await selectRows<{ data: unknown }>(table, `select=data&order=${order}&limit=${limit}&offset=${offset}`)).map((r) => r.data);
+    },
     async saveLead(lead) { await upsertRow("pilot_leads", leadRow(lead)); },
     async getLead(id) { return (await selectRows<{ data: PilotLead }>("pilot_leads", `select=data&id=eq.${encodeURIComponent(id)}&limit=1`))[0]?.data ?? null; },
     async listLeads(limit = 1000) {
@@ -179,10 +144,9 @@ export async function supabaseStore(): Promise<PilotStore> {
   };
 }
 
-/** PILOT_STORE picks it: supabase, firebase or memory. With nothing set: Supabase if its keys are there, else Firebase in firebase mode, else memory. */
+/** PILOT_STORE picks it: supabase or memory. With nothing set: Supabase if its keys are there, else memory (test runs only). */
 export async function getPilotStore(): Promise<PilotStore> {
   const want = (process.env.PILOT_STORE ?? "").trim().toLowerCase();
   if (want === "supabase" || (!want && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return supabaseStore();
-  if (want === "firebase" || (!want && DATA_SOURCE === "firebase")) return firebaseStore();
   return memoryStore();
 }

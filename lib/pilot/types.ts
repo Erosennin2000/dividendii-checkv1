@@ -45,7 +45,7 @@ export interface StoredFile {
   name: string;
   registrarId: PilotRegistrarId;
   kind: "mandate" | "authority";
-  /** Storage path (Firebase) or in-memory key. */
+  /** Storage path (Supabase bucket) or in-memory key. */
   path: string;
   filename: string;
 }

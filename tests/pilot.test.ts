@@ -222,6 +222,63 @@ describe("step 1: lead and email check", () => {
     } finally { delete process.env.PILOT_OTP; }
   });
 
+  describe("the demo code can never work once the app is live", () => {
+    const envs = ["PILOT_MODE", "PILOT_OTP", "PILOT_SECRET", "PAYSTACK_SECRET_KEY"] as const;
+    const keep: Record<string, string | undefined> = {};
+    beforeEach(() => { for (const k of envs) { keep[k] = process.env[k]; delete process.env[k]; } });
+    const restore = () => { for (const k of envs) { if (keep[k] === undefined) delete process.env[k]; else process.env[k] = keep[k]; } };
+
+    async function emailedNotDemo(store = memoryStore()) {
+      const mailer = new FakeMailer();
+      const { leadId, demo } = await startLead(parseStart(start), { store, mailer });
+      expect(demo).toBe(false);
+      expect(mailer.sent.length).toBe(1);
+      const code = /code is (\d{6})/.exec(mailer.sent[0].text)![1];
+      await expect(verifyLead(leadId, DEMO_CODE, { store })).rejects.toThrow(/right code/);
+      await verifyLead(leadId, code, { store });
+    }
+
+    it("PILOT_MODE=live emails a real code even if PILOT_OTP was left on demo or unset", async () => {
+      try {
+        process.env.PILOT_MODE = "live"; process.env.PILOT_SECRET = "x".repeat(40);
+        await emailedNotDemo();
+        process.env.PILOT_OTP = "demo";
+        await emailedNotDemo();
+      } finally { restore(); }
+    });
+
+    it("a live Paystack key emails a real code too", async () => {
+      try { process.env.PAYSTACK_SECRET_KEY = "sk_live_abc"; await emailedNotDemo(); } finally { restore(); }
+    });
+
+    it("'live' saved on the staff settings page emails a real code even when the server setting says test", async () => {
+      try {
+        const store = memoryStore();
+        await store.saveSettings(mergeStored(null, parseSettingsPatch({ mode: "live" })));
+        await emailedNotDemo(store);
+      } finally { restore(); }
+    });
+
+    it("a demo code issued while testing is refused after the switch to live", async () => {
+      try {
+        const store = memoryStore();
+        const { leadId, demo } = await startLead(parseStart(start), { store, mailer: new FakeMailer() });
+        expect(demo).toBe(true);
+        process.env.PILOT_MODE = "live"; process.env.PILOT_SECRET = "x".repeat(40);
+        await expect(verifyLead(leadId, DEMO_CODE, { store })).rejects.toThrow(/right code/);
+      } finally { restore(); }
+    });
+
+    it("while testing, nothing changes: 123456 still works and no email is sent", async () => {
+      try {
+        const store = memoryStore(), mailer = new FakeMailer();
+        const { leadId, demo } = await startLead(parseStart(start), { store, mailer });
+        expect(demo).toBe(true); expect(mailer.sent.length).toBe(0);
+        await verifyLead(leadId, DEMO_CODE, { store });
+      } finally { restore(); }
+    });
+  });
+
   it("locks after five wrong codes and rejects expired ones", async () => {
     const store = memoryStore();
     const { leadId } = await startLead(parseStart(start), { store, mailer: new FakeMailer() });

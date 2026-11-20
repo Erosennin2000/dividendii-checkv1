@@ -96,6 +96,22 @@ describe("the account", () => {
     expect(mailer.sent[0].subject).toMatch(/code to set your password: \d{6}/);
   });
 
+  it("once live, the password code is emailed, and a demo code issued earlier no longer works", async () => {
+    const { store, mailer } = await confirmed();
+    // A demo code issued while testing...
+    expect(await sendAccountCode("ade@example.com", { store, mailer })).toEqual({ demo: true });
+    // ...stops working the moment the app goes live (here: a live Paystack key, with PILOT_OTP still on demo).
+    process.env.PAYSTACK_SECRET_KEY = "sk_live_abc";
+    try {
+      await expect(setPassword({ email: "ade@example.com", code: "123456", password: "a good pass 9" }, store)).rejects.toThrow(/isn't right/);
+      mailer.sent.length = 0;
+      expect(await sendAccountCode("ade@example.com", { store, mailer })).toEqual({ demo: false });
+      expect(mailer.sent.length).toBe(1);
+      const code = /password is (\d{6})/.exec(mailer.sent[0].text)![1];
+      await setPassword({ email: "ade@example.com", code, password: "a good pass 9" }, store);
+    } finally { delete process.env.PAYSTACK_SECRET_KEY; }
+  });
+
   it("starting the form again keeps the password", async () => {
     const { store, mailer, leadId } = await confirmed();
     await setPassword({ email: "ade@example.com", code: (await sendAccountCode("ade@example.com", { store, mailer }), "123456"), password: "good pass 1" }, store);

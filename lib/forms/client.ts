@@ -1,14 +1,12 @@
-import { auth } from "@/lib/auth";
 import { REPORT_HEADER, decodeReport, type FormsReport } from "./profile";
 import type { FormProfile, Holding } from "./types";
 
 export interface FormsResult { blob: Blob; filename: string; report: FormsReport | null }
 
 export async function postForForms(url: string, body?: unknown): Promise<FormsResult> {
-  const token = auth.idToken ? await auth.idToken() : null;
   const res = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    headers: { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) {

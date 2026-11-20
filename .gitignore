@@ -6,6 +6,3 @@ out
 *.tsbuildinfo
 .DS_Store
 .env*.local
-.firebase/
-*firebase-adminsdk*.json
-firebase-debug.log

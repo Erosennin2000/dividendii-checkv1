@@ -6,12 +6,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** Staff only: one of the PDFs that went out, e.g. ?name=mandate-coronation or ?name=authority-first. */
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
   try {
     await requirePilotAdmin(req);
     const name = new URL(req.url).searchParams.get("name") ?? "";
     const store = await getPilotStore();
-    const sub = await store.get(params.id);
+    const sub = await store.get(id);
     const file = sub?.files.find((f) => f.name === name);
     if (!sub || !file) throw new AdminError(404, "That file isn't on this submission.");
     const bytes = await store.readFile(file.path);

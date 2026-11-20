@@ -3,7 +3,8 @@
 import { withBase } from "@/lib/base";
 import { useEffect, useMemo, useState } from "react";
 import { Check, TextField } from "@/components/Field";
-import { checkMonnify, getSettings, saveSettings, sendTestEmail, SignedOut, type MonnifyCheck, type SettingsView } from "@/lib/pilot/client";
+import { BANK_GROUPS } from "@/lib/pilot/banks";
+import { checkMonnify, getSettings, saveSettings, sendTestEmail, SignedOut, tryMonnifyAccount, type MonnifyCheck, type MonnifyTry, type SettingsView } from "@/lib/pilot/client";
 import { REGISTRAR_CAUTIONS, isEmail, type PilotSettings } from "@/lib/pilot/settingsShared";
 import { errorMessage } from "@/lib/util";
 
@@ -16,8 +17,11 @@ export default function PilotSettingsPage() {
   const [saved, setSaved] = useState<string>(""); // JSON of what's on the server, to tell if there are unsaved changes
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"save" | "test" | "monnify" | null>(null);
+  const [busy, setBusy] = useState<"save" | "test" | "monnify" | "try" | null>(null);
   const [mcheck, setMcheck] = useState<MonnifyCheck | null>(null);
+  const [tryBank, setTryBank] = useState("");
+  const [tryAcct, setTryAcct] = useState("");
+  const [tryOut, setTryOut] = useState<MonnifyTry | null>(null);
   const [testTo, setTestTo] = useState("");
   const [confirmLive, setConfirmLive] = useState(false);
 
@@ -193,11 +197,57 @@ export default function PilotSettingsPage() {
             )}
           </p>
           {mcheck && (
-            <p className="tiny" role="status">
+            <div className="tiny" role="status">
               {mcheck.ok
-                ? <>Connected to Monnify ({mcheck.mode}). It lists {mcheck.monnifyBanks} banks and we could match {mcheck.matched} of our {mcheck.ours}.{mcheck.unmatched && mcheck.unmatched.length > 0 ? <> Not matched (these customers simply won&apos;t get a lookup): {mcheck.unmatched.join(", ")}.</> : null}</>
+                ? <>
+                    <p>Connected to Monnify ({mcheck.mode}). It lists {mcheck.monnifyBanks} banks and we matched {mcheck.matched} of our {mcheck.ours}.</p>
+                    {mcheck.unmatchedDetail && mcheck.unmatchedDetail.length > 0 && (
+                      <>
+                        <p>Not matched yet. These still let the customer carry on, but get no bank lookup until the name is fixed. Closest names Monnify has are shown, so you can see whether the bank is missing or just spelled differently. Send me this list.</p>
+                        <ul>
+                          {mcheck.unmatchedDetail.map((u) => (
+                            <li key={u.name}><b>{u.name}</b>{u.near.length > 0 ? <> &rarr; {u.near.map((n) => n.name).join(" | ")}</> : <> &rarr; nothing close in Monnify&apos;s list</>}</li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                  </>
                 : <b>Couldn&apos;t connect: {mcheck.message}</b>}
-            </p>
+            </div>
+          )}
+          {view.monnify && view.monnify !== "off" && (
+            <div className="tiny" style={{ marginTop: 8 }}>
+              <b>Try one account (free).</b> Pick a bank, type a real 10-digit account number and see exactly what Monnify says. Nothing is saved.
+              <div className="field-row" style={{ marginTop: 6 }}>
+                <select className="input" value={tryBank} onChange={(e) => setTryBank(e.target.value)} aria-label="Bank">
+                  <option value="">Choose a bank</option>
+                  {BANK_GROUPS.map((g) => <optgroup key={g.group} label={g.group}>{g.banks.map((b) => <option key={b} value={b}>{b}</option>)}</optgroup>)}
+                </select>
+                <input className="input" inputMode="numeric" maxLength={10} placeholder="10 digits" value={tryAcct} onChange={(e) => setTryAcct(e.target.value.replace(/\D/g, "").slice(0, 10))} aria-label="Account number" />
+                <button type="button" className="btn ghost sm" disabled={busy === "try" || !tryBank || tryAcct.length !== 10}
+                  onClick={async () => { setBusy("try"); setError(null); try { setTryOut(await tryMonnifyAccount(tryBank, tryAcct)); } catch (e) { setError(errorMessage(e)); } finally { setBusy(null); } }}>
+                  {busy === "try" ? "Asking…" : "Try it"}
+                </button>
+              </div>
+              {tryOut && (
+                <div role="status" style={{ marginTop: 6 }}>
+                  <p>
+                    <b>A customer would see: </b>
+                    {tryOut.verdict === "found" ? <>&ldquo;The bank shows this account as {tryOut.name}.&rdquo;</>
+                      : tryOut.verdict === "not_found" ? <>&ldquo;We couldn&apos;t find this account at this bank.&rdquo; Step 3 would stop here.</>
+                      : <>&ldquo;We couldn&apos;t check it with the bank just now, you can carry on.&rdquo;</>}
+                  </p>
+                  <p>{tryOut.note}</p>
+                  <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", margin: 0 }}>{[
+                    `Mode: ${tryOut.mode} (${tryOut.base})`,
+                    `Our bank: ${tryBank}`,
+                    `Matched to Monnify's: ${tryOut.bankMatch ? `${tryOut.bankMatch.name} (code ${tryOut.bankMatch.code}, ${tryOut.bankMatch.confidence} match)` : "nothing"}`,
+                    `Monnify HTTP status: ${tryOut.httpStatus ?? "none"}`,
+                    `Monnify said: ${tryOut.monnifyMessage ?? "nothing"}`,
+                  ].join("\n")}</pre>
+                </div>
+              )}
+            </div>
           )}
           <p className="tiny">The bank details are only used when online payment is off. Prices on the public form update when you save.</p>
         </section>

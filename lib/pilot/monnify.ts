@@ -68,7 +68,16 @@ export async function monnifyBanks(): Promise<MonnifyBank[]> {
 }
 
 const STOP = /\b(plc|limited|ltd|nigeria|nig|of|the|for|and|bank|mfb|microfinance)\b/g;
+/** Extra filler words, dropped only on the looser pass. */
+const FILLER = /\b(digital|services?|payment|psb|merchant|financials?|finance|holdings?|group|company|co|mortgage)\b/g;
 const norm = (s: string) => s.toLowerCase().replace(/&/g, " and ").replace(STOP, " ").replace(/[^a-z0-9]+/g, " ").trim();
+const closed = (s: string) => s.replace(/\s+/g, "");
+const core = (s: string) => norm(s).replace(FILLER, " ").replace(/\s+/g, " ").trim();
+
+/**
+ * Other names a bank goes by. The key is our listed name after norm(); each value is another way Monnify may write it.
+ * These only widen what we look for in Monnify's own list. A code is never typed in by hand.
+ */
 const ALIASES: Record<string, string[]> = {
   "guaranty trust": ["gtbank", "gtb", "guaranty trust holding", "gt"],
   "united africa": ["uba"],
@@ -77,44 +86,129 @@ const ALIASES: Record<string, string[]> = {
   "stanbic ibtc": ["stanbic"],
   "polaris": ["skye"],
   "wema": ["alat"],
+  "alat by wema": ["wema", "alat"],
+  "9psb 9 payment service": ["9 payment service", "9payment service", "9mobile 9payment service", "9 psb", "9psb", "9mobile psb"],
+  "opay digital services": ["opay", "opay digital", "paycom"],
+  "hope psb": ["hopepsb", "hope payment service", "hope"],
+  "momo psb": ["momo payment service", "mtn momo"],
+  "smartcash psb": ["smartcash payment service", "smartcash"],
+  "titan trust": ["titan"],
+  "fsdh merchant": ["fsdh"],
 };
 
-/** Match a bank name as our form writes it to Monnify's list. Returns null when not sure, so a lookup is simply skipped. */
-export function bankCodeFor(name: string, banks: MonnifyBank[]): string | null {
+export type BankMatch = { code: string; name: string; confidence: "exact" | "fuzzy" };
+
+/**
+ * Find our bank name in Monnify's list. "exact" means same name (spacing, case, filler words and our known aliases ignored).
+ * "fuzzy" means a looser single match: good enough to ask the bank, never good enough to say an account does not exist.
+ * Returns null when not sure.
+ */
+export function matchBank(name: string, banks: MonnifyBank[]): BankMatch | null {
   const paren = /\(([^)]+)\)/.exec(name)?.[1] ?? "";
   const main = norm(name.replace(/\([^)]*\)/g, " "));
-  const keys = [...new Set([main, norm(paren), ...(ALIASES[main] ?? []).map(norm)].filter((k) => k.length >= 2))];
-  const prepared = banks.map((b) => ({ b, n: norm(b.name) }));
-  for (const k of keys) { const hit = prepared.find((p) => p.n === k); if (hit) return hit.b.code; }
-  const loose = prepared.filter((p) => keys.some((k) => k.length >= 5 && (p.n.includes(k) || (p.n.length >= 5 && k.includes(p.n)))));
-  return loose.length === 1 ? loose[0].b.code : null;
+  const aliasKeys = [...(ALIASES[main] ?? []), ...(ALIASES[norm(name)] ?? [])];
+  const curated = [...new Set([main, norm(paren), ...aliasKeys.map(norm)].filter((k) => k.length >= 2))];
+  const prepared = banks.map((b) => ({ b, n: norm(b.name), c: core(b.name) }));
+  const hit = (p: { b: MonnifyBank }, confidence: BankMatch["confidence"]): BankMatch => ({ code: p.b.code, name: p.b.name, confidence });
+
+  // 1. Same name, then same name ignoring spaces ("Mint Finex" and "MintFinex").
+  for (const k of curated) { const h = prepared.find((p) => p.n === k); if (h) return hit(h, "exact"); }
+  for (const k of curated) { const kc = closed(k); if (kc.length < 3) continue; const h = prepared.filter((p) => closed(p.n) === kc); if (h.length === 1) return hit(h[0], "exact"); }
+  // 2. Same name once filler words ("digital", "services", "PSB" ...) are dropped on both sides. Only when one bank fits.
+  const cores = [...new Set(curated.map(core).filter((k) => closed(k).length >= 4))];
+  for (const k of cores) { const h = prepared.filter((p) => closed(p.c) === closed(k)); if (h.length === 1) return hit(h[0], "fuzzy"); }
+  // 3. One name contains the other. Only when one bank fits.
+  const loose = prepared.filter((p) => curated.some((k) => k.length >= 5 && (p.n.includes(k) || (p.n.length >= 5 && k.includes(p.n)))));
+  return loose.length === 1 ? hit(loose[0], "fuzzy") : null;
+}
+
+/** Just the code, for callers that do not care how sure we are. */
+export function bankCodeFor(name: string, banks: MonnifyBank[]): string | null {
+  return matchBank(name, banks)?.code ?? null;
 }
 
 /** For the staff diagnostics: which of our listed banks could not be matched. */
 export function unmatchedBanks(ours: string[], banks: MonnifyBank[]) {
-  return ours.filter((n) => !bankCodeFor(n, banks));
+  return ours.filter((n) => !matchBank(n, banks));
+}
+
+const grams = (s: string) => { const t = closed(s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()); const out = new Map<string, number>(); for (let i = 0; i < t.length - 1; i++) { const g = t.slice(i, i + 2); out.set(g, (out.get(g) ?? 0) + 1); } return out; };
+function dice(a: string, b: string): number {
+  const x = grams(a), y = grams(b);
+  let n = 0, tx = 0, ty = 0;
+  for (const [g, c] of x) { tx += c; n += Math.min(c, y.get(g) ?? 0); }
+  for (const c of y.values()) ty += c;
+  return tx + ty === 0 ? 0 : (2 * n) / (tx + ty);
+}
+
+/** The closest names in Monnify's list to one of ours, so staff can see whether a bank is missing or just spelled differently. */
+export function suggestBanks(name: string, banks: MonnifyBank[], n = 3): { name: string; code: string }[] {
+  const plain = name.replace(/\([^)]*\)/g, " ");
+  return banks
+    .map((b) => ({ b, score: Math.max(dice(plain, b.name), dice(core(name), core(b.name))) }))
+    .filter((x) => x.score >= 0.4)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, n)
+    .map((x) => ({ name: x.b.name, code: x.b.code }));
 }
 
 // ---------- 1. account name lookup (free)
 export type AccountLookup = { status: "found"; name: string } | { status: "not_found" } | { status: "unavailable" };
 
+/** Words in a reply that mean "we could not ask", not "there is no such account". */
+const NOT_ABOUT_THE_ACCOUNT = /bank ?code|invalid bank|unsupported|whitelist|\bip\b|credential|unauthori[sz]ed|authenticat|api ?key|permission|access denied|rate limit|too many|balance|wallet|contract/i;
+/** Words that say the account itself does not exist. */
+const NO_SUCH_ACCOUNT = /(invalid|incorrect|unknown|unable to (resolve|verify|validate)|could not (resolve|verify|validate)|no such|does ?n[o']t exist|not found).{0,40}account|account.{0,40}(invalid|incorrect|not found|unknown|does ?n[o']t exist|unable|could not|not valid)/i;
+
+export interface LookupDetail {
+  verdict: AccountLookup["status"];
+  name?: string;
+  bankMatch: BankMatch | null;
+  httpStatus?: number;
+  monnifyMessage?: string;
+  /** Plain-words reason, for staff. */
+  note: string;
+}
+
 /**
- * "found": the bank gave us a name. "not_found": Monnify answered and says there is no such account at that bank.
- * "unavailable": anything else (off, bank not in Monnify's list, sign-in or network trouble, rate limit): we cannot tell, so callers must not block.
+ * The one place that decides what a lookup means, so the staff "try one account" box shows exactly what a customer would get.
+ * "found": the bank gave us a name. "not_found": Monnify says there is no such account, and we are sure we asked the right bank on a live key.
+ * "unavailable": anything else (off, bank not matched, sandbox, sign-in or network trouble, rate limit): we cannot tell, so callers must not block.
  */
-export async function lookupAccountName(bankName: string, accountNumber: string): Promise<AccountLookup> {
-  if (!/^\d{10}$/.test(accountNumber)) return { status: "unavailable" };
+async function lookupCore(bankName: string, accountNumber: string): Promise<LookupDetail> {
+  if (!/^\d{10}$/.test(accountNumber)) return { verdict: "unavailable", bankMatch: null, note: "The account number is not 10 digits." };
+  let match: BankMatch | null = null;
   try {
-    const code = bankCodeFor(bankName, await monnifyBanks());
-    if (!code) return { status: "unavailable" };
-    const r = await call<{ accountName?: string }>(`/api/v1/disbursements/account/validate?accountNumber=${accountNumber}&bankCode=${encodeURIComponent(code)}`);
+    match = matchBank(bankName, await monnifyBanks());
+    if (!match) return { verdict: "unavailable", bankMatch: null, note: `"${bankName}" is not in Monnify's bank list under this name, so no lookup was made.` };
+    const r = await call<{ accountName?: string }>(`/api/v1/disbursements/account/validate?accountNumber=${accountNumber}&bankCode=${encodeURIComponent(match.code)}`);
     const name = r.accountName?.trim();
-    return name ? { status: "found", name } : { status: "not_found" };
+    if (name) return { verdict: "found", name, bankMatch: match, httpStatus: 200, monnifyMessage: "success", note: "Monnify gave a name." };
+    return { verdict: "unavailable", bankMatch: match, httpStatus: 200, note: "Monnify answered without a name, so we cannot tell." };
   } catch (e) {
-    // Only a plain "no such account" answer counts. Auth, permission, rate-limit, server and network errors never do.
-    if (e instanceof MonnifyError && (e.status === 400 || e.status === 404 || e.status === 422) && /account|not found|invalid|unable to (resolve|verify)|could not/i.test(e.message)) return { status: "not_found" };
-    return { status: "unavailable" };
+    if (!(e instanceof MonnifyError)) return { verdict: "unavailable", bankMatch: match, note: "Could not reach Monnify." };
+    const base = { bankMatch: match, httpStatus: e.status, monnifyMessage: e.message };
+    const sayNoSuchAccount = (e.status === 400 || e.status === 404 || e.status === 422) && NO_SUCH_ACCOUNT.test(e.message) && !NOT_ABOUT_THE_ACCOUNT.test(e.message);
+    if (!sayNoSuchAccount) return { verdict: "unavailable", ...base, note: "Monnify's reply was not a plain \"no such account\", so nothing is blocked." };
+    if (monnifyMode() === "sandbox") return { verdict: "unavailable", ...base, note: "Sandbox is a pretend bank and cannot say real accounts do not exist, so nothing is blocked." };
+    if (match?.confidence !== "exact") return { verdict: "unavailable", ...base, note: "The bank name was only a close match, so we cannot be sure we asked the right bank. Nothing is blocked." };
+    return { verdict: "not_found", ...base, note: "Monnify says there is no such account at this bank. This is the only answer that stops step 3." };
   }
+}
+
+export async function lookupAccountName(bankName: string, accountNumber: string): Promise<AccountLookup> {
+  const r = await lookupCore(bankName, accountNumber);
+  if (r.verdict === "found" && r.name) return { status: "found", name: r.name };
+  if (r.verdict === "not_found") return { status: "not_found" };
+  return { status: "unavailable" };
+}
+
+/** Staff only. One lookup with everything Monnify said, for diagnosing a bank that will not match. Free. Never throws. */
+export async function rawAccountLookup(bankName: string, accountNumber: string): Promise<LookupDetail & { mode: "off" | "sandbox" | "live"; base: string }> {
+  const mode = monnifyMode(), base = monnifyBase();
+  if (!monnifyOn()) return { verdict: "unavailable", bankMatch: null, note: "Monnify keys are not set.", mode, base };
+  try { return { ...(await lookupCore(bankName, accountNumber)), mode, base }; }
+  catch (e) { return { verdict: "unavailable", bankMatch: null, note: e instanceof Error ? e.message.slice(0, 200) : "Failed.", mode, base }; }
 }
 
 // ---------- 2. BVN and account name match (₦10)

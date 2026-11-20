@@ -14,19 +14,20 @@ export const maxDuration = 60;
 interface Body { action?: string; registrarId?: string; note?: string; message?: string; amount?: number | string; status?: string; index?: number }
 
 /** Staff only: send or resend, chase a registrar, email a pay link, ask for the success fee, mark fees received, or leave a note. */
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
   try {
     await requirePilotAdmin(req);
     const b = (await req.json().catch(() => ({}))) as Body;
     const store = await getPilotStore();
-    const sub = await store.get(params.id);
+    const sub = await store.get(id);
     if (!sub) throw new AdminError(404, "Submission not found.");
 
     if (b.action === "resend") {
-      return NextResponse.json({ submission: await resendPilot(params.id, b.registrarId ? String(b.registrarId) : null, { store, mailer: getMailer() }) });
+      return NextResponse.json({ submission: await resendPilot(id, b.registrarId ? String(b.registrarId) : null, { store, mailer: getMailer() }) });
     }
     if (b.action === "chase") {
-      return NextResponse.json({ submission: await chasePilot(params.id, String(b.registrarId ?? ""), clean(b.message, 1000), { store, mailer: getMailer() }) });
+      return NextResponse.json({ submission: await chasePilot(id, String(b.registrarId ?? ""), clean(b.message, 1000), { store, mailer: getMailer() }) });
     }
     if (b.action === "markPaid" || b.action === "markUnpaid") {
       if (sub.payment.method !== "pay_ahead") throw new AdminError(400, "This older submission has no start fee to mark.");
@@ -38,10 +39,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return NextResponse.json({ submission: { ...sub, payment } });
     }
     if (b.action === "sendPayLink") {
-      return NextResponse.json({ submission: await sendPayLink(params.id, publicBase(req.headers.get("origin")), { store, mailer: getMailer() }) });
+      return NextResponse.json({ submission: await sendPayLink(id, publicBase(req.headers.get("origin")), { store, mailer: getMailer() }) });
     }
     if (b.action === "requestSuccessFee") {
-      return NextResponse.json({ submission: await requestSuccessFee(params.id, clean(b.message, 1000), publicBase(req.headers.get("origin")), { store, mailer: getMailer() }) });
+      return NextResponse.json({ submission: await requestSuccessFee(id, clean(b.message, 1000), publicBase(req.headers.get("origin")), { store, mailer: getMailer() }) });
     }
     if (b.action === "markSuccessPaid") {
       // For a success fee that arrived another way (bank transfer, cash). Amount in naira, optional.

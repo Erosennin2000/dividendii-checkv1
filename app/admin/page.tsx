@@ -4,7 +4,7 @@ import { withBase } from "@/lib/base";
 import { nairaExact } from "@/lib/site";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { naira } from "@/lib/domain/fees";
-import { actOnSubmission, adminSignIn, adminToken, downloadFile, feedbackCsv, fileUrl, leadsCsv, listFeedback, listLeads, listSubmissions, markFeedback, SignedOut, submissionsCsv } from "@/lib/pilot/client";
+import { actOnSubmission, adminSignIn, adminToken, downloadBackup, downloadFile, feedbackCsv, fileUrl, leadsCsv, listFeedback, listLeads, listSubmissions, markFeedback, SignedOut, submissionsCsv } from "@/lib/pilot/client";
 import { PROGRESS_LABEL, type PilotFeedback, type ProgressStatus } from "@/lib/pilot/types";
 import { PILOT_REGISTRARS } from "@/lib/pilot/config";
 import type { PilotLeadView, PilotSubmission } from "@/lib/pilot/types";
@@ -159,6 +159,13 @@ export default function PilotAdmin() {
         </div>
         <div className="row" style={{ gap: 8 }}>
         <a className="btn ghost sm" href={withBase("/admin/settings")}>Settings</a>
+        <button className="btn ghost sm" disabled={busy === "backup"} title="Saves every record and a list of every PDF to your computer. Contains personal data: keep it somewhere private."
+          onClick={async () => {
+            setBusy("backup"); setError(null);
+            try { const c = await downloadBackup(); window.alert(`Backup saved: ${c.submissions} submissions, ${c.leads} leads, ${c.feedback} feedback messages and a list of ${c.pdfs} PDFs.\n\nIt contains personal data (BVN, bank and phone details). Keep it somewhere private.`); }
+            catch (e) { if (e instanceof SignedOut) setSignedOut(true); else setError(errorMessage(e)); }
+            finally { setBusy(null); }
+          }}>{busy === "backup" ? "Preparing backup" : "Download backup"}</button>
         <button className="btn ghost sm" onClick={() => tab === "feedback"
           ? saveBlob(new Blob([feedbackCsv(feedback)], { type: "text/csv" }), "dividendii-feedback.csv")
           : tab === "leads"

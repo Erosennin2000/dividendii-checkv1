@@ -36,6 +36,17 @@
   ],
   "exclude": [
     "node_modules",
-    "retired"
+    "retired",
+    "lib/firebase",
+    "lib/auth",
+    "lib/data",
+    "lib/server",
+    "lib/config.ts",
+    "scripts",
+    "tests/support/fakeFirestore.ts",
+    "components/AppBar.tsx",
+    "components/DemoTools.tsx",
+    "components/RequireAuth.tsx",
+    "lib/domain/actions.ts"
   ]
 }

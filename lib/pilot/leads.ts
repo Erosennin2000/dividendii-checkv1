@@ -2,6 +2,7 @@ import "server-only";
 import { createHash, randomInt } from "node:crypto";
 import { isEmail } from "@/lib/domain/validation";
 import { effectiveSettings } from "./settings";
+import { paystackMode } from "./paystack";
 import { pilotEnv, type Mailer } from "./mail";
 import type { PilotStore } from "./store";
 import { clean } from "./text";
@@ -14,9 +15,20 @@ const CODE_TTL_MS = 15 * 60_000;
 const MAX_ATTEMPTS = 5;
 
 /**
- * Demo mode (the default) uses the code 123456 and sends nothing. Set PILOT_OTP=email to email a random code.
+ * Demo mode (the default while testing) uses the code 123456 and sends nothing. Set PILOT_OTP=email to email a random code.
+ * The demo code can never work once anything says the app is live: PILOT_MODE=live, "live" chosen on the staff settings page,
+ * or a live Paystack key. A missed setting must not let anyone confirm someone else's email with 123456.
  */
-export const otpMode = (): "demo" | "email" => (process.env.PILOT_OTP === "email" ? "email" : "demo");
+export function otpModeFromEnv(env: NodeJS.ProcessEnv = process.env): "demo" | "email" {
+  return env.PILOT_OTP === "email" || env.PILOT_MODE === "live" || paystackMode(env) === "live" ? "email" : "demo";
+}
+export const otpMode = otpModeFromEnv;
+
+/** The same rule, plus the mode saved on the staff settings page (which can say "live" while the server setting says "test"). */
+export async function otpModeFor(store: PilotStore): Promise<"demo" | "email"> {
+  if (otpModeFromEnv() === "email") return "email";
+  return effectiveSettings(await store.getSettings()).mode === "live" ? "email" : "demo";
+}
 
 const hash = (code: string, leadId: string) => createHash("sha256").update(`${leadId}:${code}`).digest("hex");
 export const leadIdFor = (email: string) => createHash("sha256").update(email.trim().toLowerCase()).digest("hex").slice(0, 24);
@@ -45,7 +57,8 @@ export async function startLead(input: StartInput, deps: { store: PilotStore; ma
   const now = deps.now?.() ?? new Date();
   const id = leadIdFor(input.email);
   const prev = await deps.store.getLead(id);
-  const code = otpMode() === "demo" ? DEMO_CODE : String(randomInt(100000, 1000000));
+  const otp = await otpModeFor(deps.store);
+  const code = otp === "demo" ? DEMO_CODE : String(randomInt(100000, 1000000));
   const lead: PilotLead = {
     ...(prev ?? {}), // keeps the account: password, sessions, waitlist
     id, email: input.email, firstName: input.firstName, surname: input.surname, otherNames: input.otherNames, variants: input.variants,
@@ -54,7 +67,7 @@ export async function startLead(input: StartInput, deps: { store: PilotStore; ma
     submittedRef: prev?.submittedRef ?? null,
   };
   await deps.store.saveLead(lead);
-  if (otpMode() === "email") {
+  if (otp === "email") {
     const settings = effectiveSettings(await deps.store.getSettings());
     const env = pilotEnv(settings);
     const PILOT_BRAND = settings.brandName;
@@ -65,7 +78,7 @@ export async function startLead(input: StartInput, deps: { store: PilotStore; ma
       html: `<div style="font-family:Arial,sans-serif;font-size:15px;color:#17375A"><p>Hello ${input.firstName.replace(/[<>&]/g, "")},</p><p>Your ${PILOT_BRAND} code is</p><p style="font-size:28px;font-weight:700;letter-spacing:4px">${code}</p><p>It works for 15 minutes. If you didn't ask for it, ignore this email.</p><p>${PILOT_BRAND}</p></div>`,
     });
   }
-  return { leadId: id, demo: otpMode() === "demo" };
+  return { leadId: id, demo: otp === "demo" };
 }
 
 /** Checks the code. Five wrong tries and they must ask for a new one. */
@@ -75,7 +88,10 @@ export async function verifyLead(leadId: string, code: string, deps: { store: Pi
   if (!lead || !lead.codeHash) throw new PilotValidationError(["Ask for a new code and try again."]);
   if (lead.attempts >= MAX_ATTEMPTS) throw new PilotValidationError(["Too many wrong codes. Go back and ask for a new one."]);
   if (!lead.codeExpires || new Date(lead.codeExpires) < now) throw new PilotValidationError(["That code has expired. Go back and ask for a new one."]);
-  if (hash(clean(code, 12), lead.id) !== lead.codeHash) {
+  const given = clean(code, 12);
+  // A demo code issued before the app went live must not work after it did.
+  const demoRefused = given === DEMO_CODE && (await otpModeFor(deps.store)) === "email";
+  if (demoRefused || hash(given, lead.id) !== lead.codeHash) {
     await deps.store.saveLead({ ...lead, attempts: lead.attempts + 1, updatedAt: now.toISOString() });
     throw new PilotValidationError(["That isn't the right code. Check it and try again."]);
   }
