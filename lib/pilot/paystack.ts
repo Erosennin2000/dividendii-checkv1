@@ -20,19 +20,43 @@ let fetchOverride: Fetch | null = null;
 /** Tests swap the network out. */
 export const setPaystackFetchForTests = (f: Fetch | null) => { fetchOverride = f; };
 
-export class PaystackError extends Error {}
+export class PaystackError extends Error { constructor(message: string, readonly status = 0) { super(message); } }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const key = paystackKey();
-  if (!key) throw new PaystackError("Online payment is not set up yet.");
+  if (!key) throw new PaystackError("Online payment is not set up yet.", 0);
   const res = await (fetchOverride ?? fetch)(API + path, {
     ...init,
     headers: { authorization: `Bearer ${key}`, "content-type": "application/json", ...(init?.headers ?? {}) },
     cache: "no-store",
   });
   const body = (await res.json().catch(() => null)) as { status?: boolean; message?: string; data?: T } | null;
-  if (!res.ok || !body?.status || !body.data) throw new PaystackError(body?.message || `Paystack replied ${res.status}.`);
+  if (!res.ok || !body?.status || !body.data) throw new PaystackError(body?.message || `Paystack replied ${res.status}.`, res.status);
   return body.data;
+}
+
+// ---------- bank list and free account-name lookup (Nigeria: Resolve Account Number is free on Paystack)
+export interface PaystackBank { name: string; code: string }
+let banksCache: { at: number; list: PaystackBank[] } | null = null;
+export const clearPaystackBanksForTests = () => { banksCache = null; };
+
+/** Paystack's Nigerian bank list (cached six hours). Pages of 100 until a short page. */
+export async function paystackBanks(): Promise<PaystackBank[]> {
+  if (banksCache && Date.now() - banksCache.at < 6 * 3600_000) return banksCache.list;
+  const all: PaystackBank[] = [];
+  for (let page = 1; page <= 6; page++) {
+    const d = await call<{ name: string; code: string; active?: boolean; currency?: string }[]>(`/bank?country=nigeria&perPage=100&page=${page}`);
+    all.push(...d.filter((b) => b.name && b.code && b.active !== false && (!b.currency || b.currency === "NGN")).map((b) => ({ name: b.name, code: b.code })));
+    if (d.length < 100) break;
+  }
+  if (all.length) banksCache = { at: Date.now(), list: all };
+  return all;
+}
+
+/** Throws PaystackError (with the HTTP status) when Paystack can't give a name. */
+export async function resolveAccount(bankCode: string, accountNumber: string): Promise<string | null> {
+  const d = await call<{ account_name?: string }>(`/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`);
+  return d.account_name?.trim() || null;
 }
 
 export interface InitInput {

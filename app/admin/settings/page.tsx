@@ -192,10 +192,28 @@ export default function PilotSettingsPage() {
               : view.monnify === "sandbox" ? <b>sandbox. Account name lookups only. BVN checks need live keys.</b>
               : <b>off. Nothing is looked up.</b>}
             {" "}It is switched by MONNIFY_API_KEY and MONNIFY_SECRET_KEY in Vercel, not here.
-            {view.monnify && view.monnify !== "off" && (
-              <> <button type="button" className="btn ghost sm" disabled={busy === "monnify"} onClick={async () => { setBusy("monnify"); try { setMcheck(await checkMonnify()); } catch (e) { setError(e instanceof Error ? e.message : "Couldn't check."); } finally { setBusy(null); } }}>{busy === "monnify" ? "Checking…" : "Test the Monnify connection (free)"}</button></>
+            <br />Account name lookup on step 3 (free): {view.lookup && view.lookup.length > 0
+              ? <b>on, using {view.lookup.map((p) => (p === "monnify" ? "Monnify" : "Paystack")).join(", then ")}.{view.lookup[0] === "paystack" ? " Paystack can warn a customer to check the number but never stops them." : ""}</b>
+              : <b>off. It needs live Paystack keys or live Monnify keys; sandbox and test keys are not used.</b>}
+            {((view.monnify && view.monnify !== "off") || (view.paystack && view.paystack !== "off")) && (
+              <> <button type="button" className="btn ghost sm" disabled={busy === "monnify"} onClick={async () => { setBusy("monnify"); try { setMcheck(await checkMonnify()); } catch (e) { setError(e instanceof Error ? e.message : "Couldn't check."); } finally { setBusy(null); } }}>{busy === "monnify" ? "Checking…" : "Test the bank lookups (free)"}</button></>
             )}
           </p>
+          {mcheck?.paystack && (
+            <div className="tiny" role="status">
+              {mcheck.paystack.ok
+                ? <>
+                    <p>Paystack ({mcheck.paystack.mode}) lists {mcheck.paystack.banks} banks and we matched {mcheck.paystack.matched} of our {mcheck.paystack.ours}.</p>
+                    {mcheck.paystack.unmatchedDetail && mcheck.paystack.unmatchedDetail.length > 0 && (
+                      <>
+                        <p>Not matched on Paystack (these get no lookup there). Closest names it has. Send me this list.</p>
+                        <ul>{mcheck.paystack.unmatchedDetail.map((u) => <li key={u.name}><b>{u.name}</b>{u.near.length > 0 ? <> &rarr; {u.near.map((n) => n.name).join(" | ")}</> : <> &rarr; nothing close</>}</li>)}</ul>
+                      </>
+                    )}
+                  </>
+                : <b>Paystack bank list: {mcheck.paystack.message}</b>}
+            </div>
+          )}
           {mcheck && (
             <div className="tiny" role="status">
               {mcheck.ok
@@ -215,9 +233,9 @@ export default function PilotSettingsPage() {
                 : <b>Couldn&apos;t connect: {mcheck.message}</b>}
             </div>
           )}
-          {view.monnify && view.monnify !== "off" && (
+          {view.lookup && view.lookup.length > 0 && (
             <div className="tiny" style={{ marginTop: 8 }}>
-              <b>Try one account (free).</b> Pick a bank, type a real 10-digit account number and see exactly what Monnify says. Nothing is saved.
+              <b>Try one account (free).</b> Pick a bank, type a real 10-digit account number and see exactly what a customer would see, and what the bank lookup said. Nothing is saved.
               <div className="field-row" style={{ marginTop: 6 }}>
                 <select className="input" value={tryBank} onChange={(e) => setTryBank(e.target.value)} aria-label="Bank">
                   <option value="">Choose a bank</option>
@@ -235,15 +253,17 @@ export default function PilotSettingsPage() {
                     <b>A customer would see: </b>
                     {tryOut.verdict === "found" ? <>&ldquo;The bank shows this account as {tryOut.name}.&rdquo;</>
                       : tryOut.verdict === "not_found" ? <>&ldquo;We couldn&apos;t find this account at this bank.&rdquo; Step 3 would stop here.</>
+                      : tryOut.verdict === "unconfirmed" ? <>&ldquo;We couldn&apos;t confirm this account with the bank. Please double-check.&rdquo; A warning only; the customer can carry on.</>
                       : <>&ldquo;We couldn&apos;t check it with the bank just now, you can carry on.&rdquo;</>}
                   </p>
                   <p>{tryOut.note}</p>
                   <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", margin: 0 }}>{[
-                    `Mode: ${tryOut.mode} (${tryOut.base})`,
+                    `Asked: ${tryOut.tried.length ? tryOut.tried.join(", then ") : "nobody (no live lookup keys)"}. Answered by: ${tryOut.provider ?? "nobody"}`,
+                    `Monnify: ${tryOut.mode} (${tryOut.base}). Paystack: ${tryOut.paystackMode}.`,
                     `Our bank: ${tryBank}`,
-                    `Matched to Monnify's: ${tryOut.bankMatch ? `${tryOut.bankMatch.name} (code ${tryOut.bankMatch.code}, ${tryOut.bankMatch.confidence} match)` : "nothing"}`,
-                    `Monnify HTTP status: ${tryOut.httpStatus ?? "none"}`,
-                    `Monnify said: ${tryOut.monnifyMessage ?? "nothing"}`,
+                    `Matched to their list: ${tryOut.bankMatch ? `${tryOut.bankMatch.name} (code ${tryOut.bankMatch.code}, ${tryOut.bankMatch.confidence} match)` : "nothing"}`,
+                    `HTTP status: ${tryOut.httpStatus ?? "none"}`,
+                    `They said: ${tryOut.providerMessage ?? "nothing"}`,
                   ].join("\n")}</pre>
                 </div>
               )}

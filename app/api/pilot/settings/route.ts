@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { AdminError, requirePilotAdmin } from "@/lib/pilot/admin";
 import { PILOT_REGISTRARS } from "@/lib/pilot/config";
+import { lookupProviders } from "@/lib/pilot/accountLookup";
 import { monnifyMode } from "@/lib/pilot/monnify";
 import { paystackMode } from "@/lib/pilot/paystack";
 import { defaultSettings, effectiveSettings, smtpStatus } from "@/lib/pilot/settings";
@@ -18,6 +19,7 @@ async function view(settings: PilotSettings) {
     smtp: smtpStatus(),
     paystack: paystackMode(),
     monnify: monnifyMode(),
+    lookup: lookupProviders(),
     registrars: PILOT_REGISTRARS.map((r) => ({
       id: r.id, name: r.name,
       formEmail: d.registrars[r.id].email, // what the registrar's own form says (or the server override), shown so a blank box makes sense

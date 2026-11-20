@@ -81,13 +81,36 @@ To switch it on:
 
 Each BVN check in test mode also costs N10 (it is a real call), so test with a handful only.
 
+## 7b. Account name lookup with Paystack (free)
+
+Step 3 shows "The bank shows this account as ..." from **live Monnify keys if you have them, otherwise your live Paystack key** (Paystack's Resolve Account Number is free for Nigerian accounts). Test and sandbox keys are never used for this, because they answer for pretend banks.
+
+- Paystack can only **warn** ("We couldn't confirm this account, please double-check"). It never stops a customer, because Paystack gives the same answer when a bank is slow. Only a clear "no such account" from live Monnify stops step 3.
+- If your Monnify keys are sandbox ones, set `MONNIFY_BASE_URL=https://sandbox.monnify.com` in Vercel. Without it the app assumes they are live, the sign-in fails, and it quietly falls back to Paystack.
+- The BVN and account name match (N10) still needs live Monnify keys. On sandbox it shows "Not checked" and nothing is lost.
+- Staff > Settings > **Test the bank lookups (free)** shows how many of our banks Paystack could match, with the nearest names for any it couldn't. **Try one account** shows exactly what a customer would see.
+
 ## 8. Backup and keeping the free database awake
 
 - **Backup:** open /check/admin and press **Download backup**. It saves two files to your computer: one full backup of every record (submissions, leads, feedback, settings; passwords and codes are left out) and one spreadsheet listing every PDF with its customer. The backup holds BVN, bank and phone details, so keep it somewhere private and delete old copies. The PDFs themselves stay in Supabase Storage; open any submission to download its PDFs. Supabase's free plan has **no automatic backups**, so press this button regularly (weekly while you are live is sensible).
 - **Keep-alive:** Supabase's free plan pauses a project after a week with no activity. `vercel.json` in this app has a weekly job (Mondays) that calls `/check/api/pilot/keepalive`, which reads one record and returns nothing else. After deploying, open Vercel > this project > **Settings > Cron Jobs** and confirm the job is listed. If it isn't, any free pinger that opens `https://www.dividendii.com/check/api/pilot/keepalive` once a week does the same. Real customers also keep it awake.
 - If the project ever shows as paused, press **Restore** in Supabase. Nothing is lost on a pause.
 
+## 9. Email limits (Zoho)
+
+Zoho's help page does not promise an unlimited daily amount. It describes a rolling hourly limit of roughly **50 to 500 external emails per hour per mailbox**, which moves with the mailbox's sending reputation, and says bulk or burst sending is not supported. Going over blocks sending for up to an hour.
+
+What we send per customer: 1 code email, 1 email per registrar (typically 2 to 4), 1 receipt, plus start-fee and success-fee mails. Roughly 6 to 8 emails for a typical customer. At the low end of Zoho's range that is about 6 to 8 customers an hour from one mailbox. A failed send shows on the staff page and can be re-sent, nothing is lost, but customer codes would be delayed behind a queue of registrar mail.
+
+If launch day brings a burst: use a separate sending service for the app (Zoho's own ZeptoMail is one; it is paid per email, so tell me before you sign up) and keep the Zoho mailbox for replies. The only change is the four `SMTP_` settings in Vercel.
+
+## 10. The two fees
+
+- **Start fee:** N150 per company plus 7.5% VAT, paid by Paystack before the forms are sent.
+- **Success fee:** 5% of what the customer received. Staff open the submission and press **Ask for the success fee**. The customer gets an email with a Paystack link (they type the amount they received and pay the 5%) and, if you filled in the bank details under Settings, your account to pay by transfer instead. The registrar pays the customer directly, so this relies on the customer telling us the amount.
+- No VAT is added to the 5% today. Whether VAT applies to it is a question for your accountant.
+
 ## Things to know
 - Fees shown: ₦150 per company plus 7.5% VAT, paid at step 4 before the forms are sent; then 5% when they are paid. Defaults live in `lib/pilot/config.ts` and can be changed at /check/admin/settings.
-- Vercel's free Hobby plan is for non-commercial use. Once you take your first fee the app is commercial and Vercel may ask for the paid plan. That is a cost; I will not switch it on without asking you.
+- You are on Vercel Pro and Supabase Pro, so the commercial-use rule and the free-plan pause no longer apply. The weekly keep-alive job is harmless and can stay. Supabase's own backups are on its Backups page; the Download backup button is still a good second copy.
 - The app collects BVN, bank account, photo and signature and emails them to registrars. Some registrars may want a bank-stamped form or a wet signature; expect a few to reply asking for more.

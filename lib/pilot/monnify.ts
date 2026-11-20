@@ -153,7 +153,8 @@ export function suggestBanks(name: string, banks: MonnifyBank[], n = 3): { name:
 }
 
 // ---------- 1. account name lookup (free)
-export type AccountLookup = { status: "found"; name: string } | { status: "not_found" } | { status: "unavailable" };
+/** "unconfirmed": a lookup answered "could not resolve" but we can't be sure enough to stop anyone. Shown as a warning, never blocks. */
+export type AccountLookup = { status: "found"; name: string } | { status: "not_found" } | { status: "unconfirmed" } | { status: "unavailable" };
 
 /** Words in a reply that mean "we could not ask", not "there is no such account". */
 const NOT_ABOUT_THE_ACCOUNT = /bank ?code|invalid bank|unsupported|whitelist|\bip\b|credential|unauthori[sz]ed|authenticat|api ?key|permission|access denied|rate limit|too many|balance|wallet|contract/i;
@@ -168,6 +169,9 @@ export interface LookupDetail {
   monnifyMessage?: string;
   /** Plain-words reason, for staff. */
   note: string;
+  /** What the lookup provider said, whichever provider it was. */
+  providerMessage?: string;
+  provider?: "monnify" | "paystack";
 }
 
 /**
@@ -175,7 +179,7 @@ export interface LookupDetail {
  * "found": the bank gave us a name. "not_found": Monnify says there is no such account, and we are sure we asked the right bank on a live key.
  * "unavailable": anything else (off, bank not matched, sandbox, sign-in or network trouble, rate limit): we cannot tell, so callers must not block.
  */
-async function lookupCore(bankName: string, accountNumber: string): Promise<LookupDetail> {
+export async function lookupCore(bankName: string, accountNumber: string): Promise<LookupDetail> {
   if (!/^\d{10}$/.test(accountNumber)) return { verdict: "unavailable", bankMatch: null, note: "The account number is not 10 digits." };
   let match: BankMatch | null = null;
   try {

@@ -180,6 +180,10 @@ export function successFeeEmail(s: PilotSubmission, link: string | null, note = 
   const companies = s.holdings.map((h) => h.company);
   const extra = note.trim();
   const subject = `Has your dividend arrived? Your ${rate}% success fee (${s.ref})`;
+  const acct = pilotEnv(settings).pay;
+  const transfer = acct.accountNumber
+    ? `Prefer a bank transfer? Pay ${rate}% of what you received to ${acct.accountName || BRAND}, ${acct.bank}, account ${acct.accountNumber}. Use ${s.ref} as the reference, and reply to tell us the amount you received.`
+    : "";
   const how = link
     ? `Tell us how much you received and pay the ${rate}% securely with Paystack here:`
     : `Please reply to this email with the amount you received, and we will send you how to pay the ${rate}%.`;
@@ -189,6 +193,7 @@ export function successFeeEmail(s: PilotSubmission, link: string | null, note = 
     ...companies.map((c) => `  - ${c}`), ``,
     `When you signed up, you agreed to a success fee of ${rate}% of what is actually paid to you. The registrar pays you directly, so we do not see the amount. We are relying on you to tell us.`, ``,
     how, ...(link ? [link] : []), ``,
+    ...(transfer ? [transfer, ``] : []),
     ...(extra ? [extra, ``] : []),
     `If you have not been paid yet, reply and tell us, and we will keep chasing the registrar.`, ``,
     `Thank you for trusting us with this.`, ``, BRAND,
@@ -201,6 +206,7 @@ export function successFeeEmail(s: PilotSubmission, link: string | null, note = 
     (link
       ? `<p>${esc(how)}</p><p><a href="${esc(link)}" style="background:#C59F56;color:#17375A;font-weight:bold;padding:10px 18px;border-radius:8px;text-decoration:none;display:inline-block">Tell us the amount and pay ${rate}%</a></p>`
       : `<p>${esc(how)}</p>`) +
+    (transfer ? `<p>${esc(transfer)}</p>` : "") +
     (extra ? `<p>${esc(extra).replace(/\n/g, "<br>")}</p>` : "") +
     `<p>If you have not been paid yet, reply and tell us, and we will keep chasing the registrar.</p>` +
     `<p>Thank you for trusting us with this.</p><p>${esc(BRAND)}</p>`,

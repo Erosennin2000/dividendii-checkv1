@@ -54,7 +54,7 @@ export default function PilotPage() {
   const [code, setCode] = useState("");
   const [token, setToken] = useState<string | null>(null);
   // "The bank shows this account as ..." (free Monnify lookup). Only a clear "no such account" stops step 3; a name mismatch or a failed lookup never does.
-  const [acctCheck, setAcctCheck] = useState<{ status: "found" | "not_found" | "unavailable"; name: string | null; key: string } | null>(null);
+  const [acctCheck, setAcctCheck] = useState<{ status: "found" | "not_found" | "unconfirmed" | "unavailable"; name: string | null; key: string } | null>(null);
   // Step 2
   const [regName, setRegName] = useState("");
   const [held, setHeld] = useState<Held[]>([]);
@@ -159,7 +159,7 @@ export default function PilotPage() {
     const key = bank + "|" + acct;
     const t = setTimeout(async () => {
       try {
-        const r = await post<{ status: "found" | "not_found" | "unavailable"; name: string | null }>("/api/pilot/lookup", { token, bank, accountNumber: acct });
+        const r = await post<{ status: "found" | "not_found" | "unconfirmed" | "unavailable"; name: string | null }>("/api/pilot/lookup", { token, bank, accountNumber: acct });
         if (live) setAcctCheck({ status: r.status, name: r.name, key });
       } catch { if (live) setAcctCheck({ status: "unavailable", name: null, key }); }
     }, 500);
@@ -304,6 +304,7 @@ export default function PilotPage() {
                 : bankChecking ? "Checking with your bank…"
                 : acctNow?.status === "found" ? "Account found."
                 : acctNow?.status === "unavailable" ? "10 digits. We couldn't check it with the bank just now, you can carry on."
+                : acctNow?.status === "unconfirmed" ? "We couldn't confirm this account with the bank. Please double-check the number and the bank. If both are right, you can carry on."
                 : "10 digits."}
               error={profile.accountNumber.length > 0 && profile.accountNumber.length < 10 ? "An account number has exactly 10 digits."
                 : acctNow?.status === "not_found" ? "We couldn't find this account at this bank. Please check the number and the bank." : undefined} />
