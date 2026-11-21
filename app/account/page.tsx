@@ -255,7 +255,6 @@ function Investing({ waitlist, onChange }: { waitlist: string | null; onChange: 
         <span className="tag gold">Coming soon</span>
         <h2>Investing with Dividendii</h2>
         <p>Buy and sell shares on the Nigerian Exchange, hold mutual funds and government bonds, and see your dividends in one place, with your shares held in your own name at CSCS.</p>
-        <p className="tiny">Dividendii Limited has applied to the Securities and Exchange Commission, Nigeria, to be registered as a digital sub-broker. The application is pending, and we are not yet registered. Investing opens only once we are.</p>
         <div className="btn-row" style={{ marginTop: 8 }}>
           <a className="btn gold lg" href="/app">Look around the demo</a>
           {waitlist

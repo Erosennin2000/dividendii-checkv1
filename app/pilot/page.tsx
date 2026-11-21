@@ -367,11 +367,10 @@ export default function PilotPage() {
             </div>
             <p className="tiny">
               {cfg.payOnline
-                ? <>You pay on Paystack&apos;s secure page by card, bank transfer or USSD. We send your forms as soon as the payment is confirmed. </>
+                ? <>You pay on the payment gateway&apos;s secure page by card, bank transfer or USSD. We send your forms as soon as the payment is confirmed. </>
                 : <>We will email you how to pay the start fee. </>}
               The start fee covers our work and is not a promise that money will be found. The {rate}% is never taken before you are paid: we write to you and you pay it then.
             </p>
-            {cfg.payOnline && cfg.payMode === "test" && <p className="tiny"><b>Test payments:</b> no real money moves. Use Paystack&apos;s test card 4084 0840 8408 4081, any future date, CVV 408.</p>}
             <div style={{ marginTop: 12 }}>
               <Check checked={payAck} onToggle={() => setPayAck((v) => !v)}>
                 <b>I understand the fees above.</b> I agree to pay {nairaExact(total)} now and {rate}% of any dividend I receive.

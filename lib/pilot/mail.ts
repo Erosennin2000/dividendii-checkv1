@@ -158,7 +158,7 @@ export function payLinkEmail(s: PilotSubmission, link: string, settings: PilotSe
     `Hello ${s.profile.firstName},`, ``,
     `Your dividend forms are ready, reference ${s.ref}. We send them to the registrars as soon as your start fee is paid.`, ``,
     `Amount: ${amount} (${naira(settings.payAheadPerCompany)} plus 7.5% VAT for each of ${n} ${n === 1 ? "company" : "companies"}).`, ``,
-    `Pay securely with Paystack here:`, link, ``,
+    `Pay securely here:`, link, ``,
     `${BRAND} staff will never ask for your PIN, OTP or card details by phone, WhatsApp or email.`, ``,
     `Questions? Reply to this email and quote ${s.ref}.`, ``, BRAND,
   ].join("\n");
@@ -166,7 +166,7 @@ export function payLinkEmail(s: PilotSubmission, link: string, settings: PilotSe
     `<p>Hello ${esc(s.profile.firstName)},</p>` +
     `<p>Your dividend forms are ready, reference <b>${esc(s.ref)}</b>. We send them to the registrars as soon as your start fee is paid.</p>` +
     `<p><b>Amount: ${esc(amount)}</b> (${esc(naira(settings.payAheadPerCompany))} plus 7.5% VAT for each of ${n} ${n === 1 ? "company" : "companies"}).</p>` +
-    `<p><a href="${esc(link)}" style="background:#C59F56;color:#17375A;font-weight:bold;padding:10px 18px;border-radius:8px;text-decoration:none;display:inline-block">Pay ${esc(amount)} with Paystack</a></p>` +
+    `<p><a href="${esc(link)}" style="background:#C59F56;color:#17375A;font-weight:bold;padding:10px 18px;border-radius:8px;text-decoration:none;display:inline-block">Pay ${esc(amount)}</a></p>` +
     `<p style="color:#5b6472">${esc(BRAND)} staff will never ask for your PIN, OTP or card details by phone, WhatsApp or email.</p>` +
     `<p>Questions? Reply to this email and quote ${esc(s.ref)}.</p><p>${esc(BRAND)}</p>`,
   );
@@ -185,7 +185,7 @@ export function successFeeEmail(s: PilotSubmission, link: string | null, note = 
     ? `Prefer a bank transfer? Pay ${rate}% of what you received to ${acct.accountName || BRAND}, ${acct.bank}, account ${acct.accountNumber}. Use ${s.ref} as the reference, and reply to tell us the amount you received.`
     : "";
   const how = link
-    ? `Tell us how much you received and pay the ${rate}% securely with Paystack here:`
+    ? `Tell us how much you received and pay the ${rate}% securely here:`
     : `Please reply to this email with the amount you received, and we will send you how to pay the ${rate}%.`;
   const text = [
     `Hello ${s.profile.firstName},`, ``,

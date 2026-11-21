@@ -8,7 +8,7 @@ export function SiteHeader({ active = "check" }: { active?: "check" | "account" 
   return (
     <>
       <div className="sx-notice"><div className="sx-wrap">
-        <span>Dividendii staff will never ask for your PIN, OTP or card details. Our fees are paid only on Paystack&apos;s secure page, never to a personal account.</span>
+        <span>Dividendii staff will never ask for your PIN, OTP or card details.</span>
         <a href={wa} target="_blank" rel="noopener noreferrer">WhatsApp us</a>
       </div></div>
       <header className="sx-head"><div className="sx-wrap">
@@ -31,7 +31,6 @@ export function SiteFooter() {
   return (
     <footer className="sx-foot"><div className="sx-wrap">
       <p><strong>{SITE.legal}</strong>, {SITE.rc}. {SITE.address}. <a href={"tel:" + SITE.phoneTel}>{SITE.phone}</a> · <a href={"mailto:" + SITE.email}>{SITE.email}</a> · {SITE.hours}.</p>
-      <p>{SITE.legal} has applied to the Securities and Exchange Commission, Nigeria, to be registered as a digital sub-broker. The application is pending, and we are not yet registered.</p>
       <p><a href="/legal#terms">Terms of use</a> · <a href="/legal#privacy">Privacy notice</a> · <a href="/legal#risk">Risk disclosure</a> · <a href="/legal#cookies">Cookies</a> · <a href="/safety#complaints">Complaints</a> · © 2026 {SITE.legal}</p>
     </div></footer>
   );

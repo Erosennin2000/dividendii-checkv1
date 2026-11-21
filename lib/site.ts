@@ -2,7 +2,7 @@
 export const SITE = {
   brand: "Dividendii",
   legal: "Dividendii Limited",
-  rc: "RC 9598309",
+  rc: "RC 10023264",
   address: "10 Ahmadu Bello Street, Victoria Island, Lagos",
   phone: "+234 909 502 3263",
   phoneTel: "+2349095023263",
@@ -10,7 +10,6 @@ export const SITE = {
   email: "support@dividendii.com",
   hours: "9am to 5pm, Monday to Friday",
   home: "https://www.dividendii.com",
-  source: "https://nairametrics.com/2026/07/16/sec-launches-nationwide-campaign-to-recover-n270-billion-unclaimed-dividends/",
 };
 /** Start fee, per company, before VAT. Paid when the forms are sent. */
 export const START_FEE = 150;

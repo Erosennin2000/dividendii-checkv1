@@ -25,7 +25,6 @@ export default function Landing() {
           <div className="hero-stat">
             <div className="sum">{"₦"}270bn</div>
             <div className="lbl">in dividends sits unclaimed in Nigeria, much of it owed to people who bought shares years ago</div>
-            <div className="src"><a href={SITE.source} target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>Source: Nairametrics, 16 July 2026, on the SEC campaign</a></div>
           </div>
         </div>
       </section>
@@ -45,7 +44,7 @@ export default function Landing() {
       </section>
 
       <section className="trust">
-        <div><div className="k">{naira(START_FEE)}</div><div className="v">Start fee per company, plus {VAT_RATE * 100}% VAT ({naira(startFeeWithVat())}), paid securely with Paystack when you send your forms</div></div>
+        <div><div className="k">{naira(START_FEE)}</div><div className="v">Start fee per company, plus {VAT_RATE * 100}% VAT ({naira(startFeeWithVat())}), paid securely through our payment gateway when you send your forms</div></div>
         <div><div className="k">Direct</div><div className="v">The registrar pays your own bank account. Dividendii never holds your dividend</div></div>
         <div><div className="k">{SUCCESS_PERCENT}%</div><div className="v">Of what is actually paid to you, paid by you only after a dividend reaches your account</div></div>
       </section>

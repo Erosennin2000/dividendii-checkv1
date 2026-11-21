@@ -50,7 +50,6 @@ export default function PayByLinkPage() {
 
   if (error) return <div className="pwrap"><section className="card"><h1>This link didn&apos;t open</h1><p className="lede">{error}</p></section></div>;
   if (!info || !q) return <div className="pwrap"><section className="card"><h1>Opening your payment…</h1><p className="lede"><span className="spin" /></p></section></div>;
-  const test = info.payMode === "test" && <p className="tiny"><b>Test payments:</b> no real money moves. Use Paystack&apos;s test card 4084 0840 8408 4081, any future date, CVV 408.</p>;
   const off = !info.payOnline && <p className="tiny">Online payment isn&apos;t switched on yet. Reply to our email and we will send you how to pay.</p>;
 
   if (q.kind === "start") return (
@@ -64,9 +63,9 @@ export default function PayByLinkPage() {
           <div className="ledger" style={{ margin: "8px 0 16px" }}>
             <div className="row"><span className="k">{info.companies.length} {info.companies.length === 1 ? "company" : "companies"} at {nairaExact(info.perCompany)} plus 7.5% VAT</span><span className="v"><b>{nairaExact(info.start.amount)}</b></span></div>
           </div>
-          <button className="btn gold lg" disabled={busy || !info.payOnline} onClick={pay}>{busy ? <span className="spin" /> : `Pay ${nairaExact(info.start.amount)} with Paystack`}</button>
+          <button className="btn gold lg" disabled={busy || !info.payOnline} onClick={pay}>{busy ? <span className="spin" /> : `Pay ${nairaExact(info.start.amount)}`}</button>
           {formError && <div className="field-error">{formError}</div>}
-          {off}{test}
+          {off}
         </>
       )}
     </section></div>
@@ -86,10 +85,10 @@ export default function PayByLinkPage() {
         <div className="row"><span className="k">Success fee at {info.ratePercent}%</span><span className="v"><b>{fee > 0 ? nairaExact(fee) : "—"}</b></span></div>
         <div className="row"><span className="k">You keep</span><span className="v">{fee > 0 ? nairaExact(Math.round((received - fee) * 100) / 100) : "—"}</span></div>
       </div>
-      <button className="btn gold lg" disabled={busy || !(fee > 0) || !info.payOnline} onClick={pay}>{busy ? <span className="spin" /> : fee > 0 ? `Pay ${nairaExact(fee)} with Paystack` : "Enter the amount you received"}</button>
+      <button className="btn gold lg" disabled={busy || !(fee > 0) || !info.payOnline} onClick={pay}>{busy ? <span className="spin" /> : fee > 0 ? `Pay ${nairaExact(fee)}` : "Enter the amount you received"}</button>
       {formError && <div className="field-error">{formError}</div>}
       <p className="tiny" style={{ marginTop: 12 }}>Not been paid yet? Don&apos;t pay anything. Reply to our email and we will keep chasing the registrar.</p>
-      {off}{test}
+      {off}
     </section></div>
   );
 }

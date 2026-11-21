@@ -32,7 +32,7 @@ export default function PaidPage() {
     <div className="pwrap"><section className="card">
       <h1>We couldn&apos;t confirm your payment yet</h1>
       <p className="lede">{error}</p>
-      <p className="tiny">If money left your account, it is not lost: we receive a separate confirmation from Paystack and will update your submission. You can also reply to our email and quote your reference.</p>
+      <p className="tiny">If money left your account, it is not lost: we receive a separate confirmation from our payment gateway and will update your submission. You can also reply to our email and quote your reference.</p>
     </section></div>
   );
   if (!out) return (
@@ -57,7 +57,7 @@ export default function PaidPage() {
   if (out.kind === "success") return (
     <div className="pwrap"><section className="card">
       <h1>Thank you, {out.firstName}. We&apos;ve received your success fee.</h1>
-      <p className="lede">{out.amount != null && <>We received <b>{nairaExact(out.amount)}</b>. </>}Your reference is <b>{out.ref}</b>. Paystack will email your receipt. Thank you for dealing with us honestly.</p>
+      <p className="lede">{out.amount != null && <>We received <b>{nairaExact(out.amount)}</b>. </>}Your reference is <b>{out.ref}</b>. The payment gateway will email your receipt. Thank you for dealing with us honestly.</p>
     </section></div>
   );
 
