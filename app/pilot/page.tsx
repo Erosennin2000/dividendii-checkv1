@@ -148,10 +148,7 @@ export default function PilotPage() {
     } catch (e) { setError(errorMessage(e)); setBusy(false); }
   }
 
-  if (result) return <Done r={result} email={profile.email} first={profile.firstName} rate={rate} perCompany={perCompany} />;
-  if (!cfg.open) return <div className="card" style={{ maxWidth: 560, margin: "48px auto" }}><h1 style={{ fontSize: 28 }}>We&apos;ve paused new submissions</h1><p className="lede">We aren&apos;t taking new forms for a short while. Please check back soon.</p></div>;
-
-
+  // Hooks must all run before the early returns below, or React crashes once the result screen shows.
   useEffect(() => {
     const bank = profile.bankName, acct = profile.accountNumber;
     if (step !== 3 || !token || !bank || acct.length !== 10) { setAcctCheck(null); return; }
@@ -165,6 +162,9 @@ export default function PilotPage() {
     }, 500);
     return () => { live = false; clearTimeout(t); };
   }, [step, token, profile.bankName, profile.accountNumber]);
+
+  if (result) return <Done r={result} email={profile.email} first={profile.firstName} rate={rate} perCompany={perCompany} />;
+  if (!cfg.open) return <div className="card" style={{ maxWidth: 560, margin: "48px auto" }}><h1 style={{ fontSize: 28 }}>We&apos;ve paused new submissions</h1><p className="lede">We aren&apos;t taking new forms for a short while. Please check back soon.</p></div>;
 
   // Account check for the current bank + number. Only "not_found" blocks; while we are still asking, the button waits a moment.
   const acctKey = profile.bankName + "|" + profile.accountNumber;
