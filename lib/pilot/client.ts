@@ -164,7 +164,7 @@ export async function checkMonnify(): Promise<MonnifyCheck> {
 
 export interface MonnifyTry {
   provider: "paystack" | "monnify" | "off";
-  verdict: "found" | "not_found" | "unavailable"; name?: string; note: string; httpStatus?: number; providerMessage?: string;
+  verdict: "found" | "not_found" | "unconfirmed" | "unavailable"; name?: string; note: string; httpStatus?: number; providerMessage?: string;
   bankMatch: { code: string; name: string; confidence: "exact" | "fuzzy" } | null; mode: "off" | "test" | "live"; base: string;
 }
 export async function tryMonnifyAccount(bank: string, accountNumber: string): Promise<MonnifyTry> {

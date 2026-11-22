@@ -41,6 +41,7 @@ export interface LookupDetail {
 }
 
 const PAYSTACK_BASE = "https://api.paystack.co";
+const COULD_NOT_RESOLVE = /could not resolve|unable to resolve|invalid (account|nuban)|account (number )?(is )?(invalid|not found)/i;
 
 async function viaPaystack(bankName: string, accountNumber: string): Promise<LookupDetail> {
   const mode = lookupMode();
@@ -52,6 +53,10 @@ async function viaPaystack(bankName: string, accountNumber: string): Promise<Loo
     if (!match) return { ...base, verdict: "unavailable", bankMatch: null, note: `"${bankName}" is not in Paystack's bank list under this name, so no lookup was made.` };
     const r = await paystackResolve(match.code, accountNumber);
     if (r.name) return { ...base, verdict: "found", name: r.name, bankMatch: match, httpStatus: r.httpStatus, providerMessage: r.message, note: "Paystack gave a name." };
+    // A clear "could not resolve" on a live key for a bank we matched exactly: warn the customer to double-check, but never stop them.
+    if (r.httpStatus === 422 && COULD_NOT_RESOLVE.test(r.message) && match.confidence === "exact" && mode === "live") {
+      return { ...base, verdict: "unconfirmed", bankMatch: match, httpStatus: r.httpStatus, providerMessage: r.message, note: "Paystack could not resolve this account. It says that for a wrong number, but also when a bank is slow, so the customer is only warned to double-check. Nothing is blocked." };
+    }
     const why =
       r.httpStatus === 422 ? "Paystack could not resolve this account. It says that for a wrong number, but also when a bank is slow, so nothing is blocked."
       : r.httpStatus === 401 ? "Paystack did not accept the key. Check PAYSTACK_SECRET_KEY in Vercel."
@@ -79,6 +84,7 @@ export async function lookupAccountName(bankName: string, accountNumber: string)
   const r = await lookupDetail(bankName, accountNumber);
   if (r.verdict === "found" && r.name) return { status: "found", name: r.name };
   if (r.verdict === "not_found") return { status: "not_found" };
+  if (r.verdict === "unconfirmed") return { status: "unconfirmed" };
   return { status: "unavailable" };
 }
 

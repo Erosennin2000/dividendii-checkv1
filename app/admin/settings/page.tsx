@@ -241,6 +241,7 @@ export default function PilotSettingsPage() {
                   <p>
                     <b>A customer would see: </b>
                     {tryOut.verdict === "found" ? <>&ldquo;The bank shows this account as {tryOut.name}.&rdquo;</>
+                      : tryOut.verdict === "unconfirmed" ? <>&ldquo;We couldn&apos;t confirm this account with the bank. Please double-check the number and the bank. If both are right, you can carry on.&rdquo; A warning only, nothing is blocked.</>
                       : tryOut.verdict === "not_found" ? <>&ldquo;We couldn&apos;t find this account at this bank.&rdquo; Step 3 would stop here.</>
                       : <>&ldquo;We couldn&apos;t check it with the bank just now, you can carry on.&rdquo;</>}
                   </p>

@@ -49,8 +49,8 @@ describe("account lookup through Paystack", () => {
     expect((await lookupDetail("Guaranty Trust Bank (GTBank)", "0123456789")).bankMatch?.code).toBe("058");
   });
 
-  it("never says 'no such account': a Paystack refusal, 422, rate limit or network failure all let the customer carry on", async () => {
-    for (const [status, msg] of [[422, "Could not resolve account name. Check parameters or try again."], [403, "Forbidden"], [429, "slow"], [401, "Invalid key"], [500, "oops"]] as const) {
+  it("never says 'no such account': a refusal, rate limit, failure or empty answer all let the customer carry on", async () => {
+    for (const [status, msg] of [[403, "Forbidden"], [429, "slow"], [401, "Invalid key"], [500, "oops"]] as const) {
       net(() => json(status, { status: false, message: msg }));
       expect(await lookupAccountName("Access Bank", "0123456789")).toEqual({ status: "unavailable" });
     }
@@ -58,6 +58,16 @@ describe("account lookup through Paystack", () => {
     clearPaystackBankCache();
     expect(await lookupAccountName("Access Bank", "0123456789")).toEqual({ status: "unavailable" });
     net(() => json(200, { status: true, message: "ok", data: {} }));
+    expect(await lookupAccountName("Access Bank", "0123456789")).toEqual({ status: "unavailable" });
+  });
+
+  it("only warns ('unconfirmed') when Paystack says it could not resolve, and only for a live key and an exact bank match", async () => {
+    net(() => json(422, { status: false, message: "Could not resolve account name. Check parameters or try again." }));
+    expect(await lookupAccountName("Access Bank", "0123456789")).toEqual({ status: "unconfirmed" });
+    expect(await lookupAccountName("Guaranty Trust Bank (GTBank)", "0123456789")).toEqual({ status: "unconfirmed" });
+    env.PAYSTACK_SECRET_KEY = "sk_test_x"; net(() => json(422, { status: false, message: "Could not resolve account name." }));
+    expect(await lookupAccountName("Access Bank", "0123456789")).toEqual({ status: "unavailable" });
+    env.PAYSTACK_SECRET_KEY = "sk_live_abc"; net(() => json(422, { status: false, message: "Something else went wrong" }));
     expect(await lookupAccountName("Access Bank", "0123456789")).toEqual({ status: "unavailable" });
   });
 

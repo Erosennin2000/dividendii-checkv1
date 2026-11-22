@@ -3,6 +3,8 @@
 
 import { useRef, useState, type ReactNode } from "react";
 import { errorMessage } from "@/lib/util";
+import { LabelWithWhy } from "./Why";
+import type { WhyKey } from "@/lib/pilot/whyCopy";
 
 interface Props {
   label: string;
@@ -13,9 +15,10 @@ interface Props {
   preview?: string | null;
   onFile: (file: File) => Promise<void> | void;
   maxBytes?: number;
+  why?: WhyKey;
 }
 
-export function FileDrop({ label, hint, accept, icon, filledLabel, preview, onFile, maxBytes = 10 * 1024 * 1024 }: Props) {
+export function FileDrop({ label, hint, accept, icon, filledLabel, preview, onFile, maxBytes = 10 * 1024 * 1024, why }: Props) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +42,7 @@ export function FileDrop({ label, hint, accept, icon, filledLabel, preview, onFi
 
   return (
     <div className="field">
-      <span className="label">{label}</span>
+      {why ? <LabelWithWhy k={why}>{label}</LabelWithWhy> : <span className="label">{label}</span>}
       <input ref={input} type="file" accept={accept} className="visually-hidden" tabIndex={-1}
         onChange={(e) => { void take(e.target.files?.[0]); e.target.value = ""; }} />
       <button type="button" className="dropzone" data-filled={!!filledLabel} onClick={() => input.current?.click()}

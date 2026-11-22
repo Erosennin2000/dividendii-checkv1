@@ -5,6 +5,7 @@ import { withBase } from "@/lib/base";
 import { nairaExact } from "@/lib/site";
 import { CompanyPicker } from "@/components/CompanyPicker";
 import { CompanySearch } from "@/components/CompanySearch";
+import { LabelWithWhy, StepNote, Why } from "@/components/Why";
 import { Check, SelectField, TextField } from "@/components/Field";
 import { FileDrop } from "@/components/FileDrop";
 import { SignaturePad } from "@/components/SignaturePad";
@@ -54,8 +55,8 @@ export default function PilotPage() {
   const [lead, setLead] = useState<{ id: string; demo: boolean } | null>(null);
   const [code, setCode] = useState("");
   const [token, setToken] = useState<string | null>(null);
-  // "The bank shows this account as ..." (free bank name lookup, Paystack by default). Only a clear "no such account" stops step 3; a name mismatch or a failed lookup never does.
-  const [acctCheck, setAcctCheck] = useState<{ status: "found" | "not_found" | "unavailable"; name: string | null; key: string } | null>(null);
+  // "The bank shows this account as ..." (free Monnify lookup). Only a clear "no such account" stops step 3; a name mismatch or a failed lookup never does.
+  const [acctCheck, setAcctCheck] = useState<{ status: "found" | "not_found" | "unconfirmed" | "unavailable"; name: string | null; key: string } | null>(null);
   // Step 2
   const [regName, setRegName] = useState("");
   const [held, setHeld] = useState<Held[]>([]);
@@ -153,10 +154,7 @@ export default function PilotPage() {
     } catch (e) { setError(errorMessage(e)); setBusy(false); }
   }
 
-  if (result) return <Done r={result} email={profile.email} first={profile.firstName} rate={rate} perCompany={perCompany} />;
-  if (!cfg.open) return <div className="card" style={{ maxWidth: 560, margin: "48px auto" }}><h1 style={{ fontSize: 28 }}>We&apos;ve paused new submissions</h1><p className="lede">We aren&apos;t taking new forms for a short while. Please check back soon.</p></div>;
-
-
+  // Hooks must all run before the early returns below, or React crashes once the result screen shows.
   useEffect(() => {
     const bank = profile.bankName, acct = profile.accountNumber;
     if (step !== 3 || !token || !bank || acct.length !== 10) { setAcctCheck(null); return; }
@@ -164,12 +162,15 @@ export default function PilotPage() {
     const key = bank + "|" + acct;
     const t = setTimeout(async () => {
       try {
-        const r = await post<{ status: "found" | "not_found" | "unavailable"; name: string | null }>("/api/pilot/lookup", { token, bank, accountNumber: acct });
+        const r = await post<{ status: "found" | "not_found" | "unconfirmed" | "unavailable"; name: string | null }>("/api/pilot/lookup", { token, bank, accountNumber: acct });
         if (live) setAcctCheck({ status: r.status, name: r.name, key });
       } catch { if (live) setAcctCheck({ status: "unavailable", name: null, key }); }
     }, 500);
     return () => { live = false; clearTimeout(t); };
   }, [step, token, profile.bankName, profile.accountNumber]);
+
+  if (result) return <Done r={result} email={profile.email} first={profile.firstName} rate={rate} perCompany={perCompany} />;
+  if (!cfg.open) return <div className="card" style={{ maxWidth: 560, margin: "48px auto" }}><h1 style={{ fontSize: 28 }}>We&apos;ve paused new submissions</h1><p className="lede">We aren&apos;t taking new forms for a short while. Please check back soon.</p></div>;
 
   // Account check for the current bank + number. Only "not_found" blocks; while we are still asking, the button waits a moment.
   const acctKey = profile.bankName + "|" + profile.accountNumber;
@@ -198,15 +199,16 @@ export default function PilotPage() {
       {step === 1 && !waitingForCode && (
         <section className="card">
           <h1>First, who are you?</h1>
+          <StepNote k={1} />
           <p className="lede">Give your name exactly as it appears on your ID. Then add any other ways it was written, because registers rarely match an ID exactly.</p>
           <div className="field-row three">
-            <TextField label="First name" value={profile.firstName} onChange={set("firstName")} autoComplete="given-name" />
-            <TextField label="Other names" value={profile.otherNames} onChange={set("otherNames")} placeholder="Optional" autoComplete="additional-name" />
-            <TextField label="Surname" value={profile.surname} onChange={set("surname")} autoComplete="family-name" />
+            <TextField why="firstName" label="First name" value={profile.firstName} onChange={set("firstName")} autoComplete="given-name" />
+            <TextField why="otherNames" label="Other names" value={profile.otherNames} onChange={set("otherNames")} placeholder="Optional" autoComplete="additional-name" />
+            <TextField why="surname" label="Surname" value={profile.surname} onChange={set("surname")} autoComplete="family-name" />
           </div>
 
           <div className="field">
-            <label htmlFor="variant">Other ways your name was written</label>
+            <LabelWithWhy htmlFor="variant" k="variants">Other ways your name was written</LabelWithWhy>
             <div className="tags" style={{ marginBottom: variants.length ? 8 : 0 }}>
               {variants.map((v) => (
                 <button key={v} type="button" className="chip" onClick={() => setVariants(variants.filter((x) => x !== v))} aria-label={`Remove ${v}`}>{v} <XIcon /></button>
@@ -221,8 +223,8 @@ export default function PilotPage() {
           </div>
 
           <div className="field-row">
-            <TextField label="Email" value={profile.email} onChange={set("email")} type="email" inputMode="email" autoComplete="email" hint="We send a code here to confirm it's you." />
-            <TextField label="CHN or CSCS number" value={profile.chn} onChange={(v) => set("chn")(v.toUpperCase().slice(0, 20))} placeholder="Optional"
+            <TextField why="email" label="Email" value={profile.email} onChange={set("email")} type="email" inputMode="email" autoComplete="email" hint="We send a code here to confirm it's you." />
+            <TextField why="chn" label="CHN or CSCS number" value={profile.chn} onChange={(v) => set("chn")(v.toUpperCase().slice(0, 20))} placeholder="Optional"
               hint="Find it on a dividend warrant or your CSCS statement." />
           </div>
           <input type="text" name="website" value={website} onChange={(e) => setWebsite(e.target.value)} tabIndex={-1} autoComplete="off" aria-hidden="true"
@@ -239,9 +241,10 @@ export default function PilotPage() {
       {waitingForCode && lead && (
         <section className="card">
           <h1>Check your email</h1>
+          <StepNote k="code" />
           <p className="lede">We sent a 6-digit code to <b>{profile.email}</b>. Enter it to continue.</p>
           <div className="field">
-            <label htmlFor="code">Code</label>
+            <LabelWithWhy htmlFor="code" k="code">Code</LabelWithWhy>
             <input id="code" className="input code-input" inputMode="numeric" autoComplete="one-time-code" value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} onKeyDown={(e) => { if (e.key === "Enter" && code.length === 6) void checkCode(); }} />
             {lead.demo && <div className="hint">Demo mode: the code is <b>123456</b>. No email is sent.</div>}
@@ -261,10 +264,11 @@ export default function PilotPage() {
       {step === 2 && (
         <section className="card">
           <h1>Where do you hold shares?</h1>
+          <StepNote k={2} />
           <p className="lede">Type a company&apos;s name and we&apos;ll find its registrar for you. Or, if you already know your registrar, choose it below and tick your companies.</p>
           <CompanySearch companies={searchable} isHeld={isHeld} onAdd={addFound} />
           <p className="tiny" style={{ margin: "18px 0 10px", fontWeight: 600 }}>Or choose the registrar yourself</p>
-          <SelectField label="Registrar" value={regName} onChange={(v) => { setRegName(v); }} options={cfg.registrars.map((r) => r.name)} placeholder="Choose a registrar" />
+          <SelectField why="registrar" label="Registrar" value={regName} onChange={(v) => { setRegName(v); }} options={cfg.registrars.map((r) => r.name)} placeholder="Choose a registrar" />
           <CompanyPicker key={regId} options={options} disabled={!regId} placeholder={regId ? "Tick your companies" : "Choose a registrar first"} onAdd={addCompanies} />
 
           {byRegistrar.length > 0 && (
@@ -291,9 +295,10 @@ export default function PilotPage() {
       {step === 3 && (
         <section className="card">
           <h1>Your details</h1>
+          <StepNote k={3} />
           <p className="lede">The registrar needs these to match you to the register and to pay you. Write them as your bank holds them.</p>
           <div className="field">
-            <label htmlFor="bank">Bank</label>
+            <LabelWithWhy htmlFor="bank" k="bank">Bank</LabelWithWhy>
             <select id="bank" className="input" value={bankOther ? OTHER_BANK : bankListed ? profile.bankName : ""}
               onChange={(e) => { const v = e.target.value; if (v === OTHER_BANK) { setBankOther(true); set("bankName")(""); } else { setBankOther(false); set("bankName")(v); } }}>
               <option value="">Choose your bank</option>
@@ -303,14 +308,15 @@ export default function PilotPage() {
             {bankOther && <input className="input" style={{ marginTop: 8 }} placeholder="Type your bank's name" value={profile.bankName} onChange={(e) => set("bankName")(e.target.value)} />}
           </div>
           <div className="field-row">
-            <TextField label="BVN" value={profile.bvn} onChange={digits("bvn", 11)} inputMode="numeric" placeholder="11 digits" />
-            <TextField label="Account number" value={profile.accountNumber} onChange={digits("accountNumber", 10)} inputMode="numeric"
+            <TextField why="bvn" label="BVN" value={profile.bvn} onChange={digits("bvn", 11)} inputMode="numeric" placeholder="11 digits" />
+            <TextField why="account" label="Account number" value={profile.accountNumber} onChange={digits("accountNumber", 10)} inputMode="numeric"
               disabled={!bankChosen} placeholder={bankChosen ? "10 digits" : "Choose your bank first"}
               hint={!bankChosen ? "Choose your bank first, then type the account number."
                 : profile.accountNumber.length < 10 ? `${profile.accountNumber.length} of 10 digits`
                 : bankChecking ? "Checking with your bank…"
                 : acctNow?.status === "found" ? "Account found."
                 : acctNow?.status === "unavailable" ? "10 digits. We couldn't check it with the bank just now, you can carry on."
+                : acctNow?.status === "unconfirmed" ? "We couldn't confirm this account with the bank. Please double-check the number and the bank. If both are right, you can carry on."
                 : "10 digits."}
               error={profile.accountNumber.length > 0 && profile.accountNumber.length < 10 ? "An account number has exactly 10 digits."
                 : acctNow?.status === "not_found" ? "We couldn't find this account at this bank. Please check the number and the bank." : undefined} />
@@ -324,20 +330,20 @@ export default function PilotPage() {
               </p>
             );
           })()}
-          <TextField label="Home address now" value={profile.address} onChange={set("address")} placeholder="House number, street and area" autoComplete="street-address" />
+          <TextField why="address" label="Home address now" value={profile.address} onChange={set("address")} placeholder="House number, street and area" autoComplete="street-address" />
           <div className="field-row three">
             <TextField label="City or town" value={profile.city} onChange={set("city")} autoComplete="address-level2" />
             <TextField label="State" value={profile.state} onChange={set("state")} autoComplete="address-level1" />
             <TextField label="Country" value={profile.country} onChange={set("country")} autoComplete="country-name" />
           </div>
-          <TextField label="Mobile number" value={profile.phone1} onChange={set("phone1")} type="tel" inputMode="tel" autoComplete="tel" placeholder="0803 123 4567" />
+          <TextField why="mobile" label="Mobile number" value={profile.phone1} onChange={set("phone1")} type="tel" inputMode="tel" autoComplete="tel" placeholder="0803 123 4567" />
 
-          <h2 style={{ marginTop: 28 }}>When you bought the shares</h2>
+          <h2 style={{ marginTop: 28 }}>When you bought the shares <Why k="atPurchase" /></h2>
           <p className="tiny">The register holds what you gave back then. These help the registrar find your holding.</p>
-          <TextField label="Your home address at that time" value={at.address} onChange={setA("address")} placeholder="House number, street, area and city" />
-          <TextField label="Your phone number at that time" value={at.phone} onChange={setA("phone")} type="tel" inputMode="tel" placeholder="Optional, if you remember it" />
+          <TextField why="addressThen" label="Your home address at that time" value={at.address} onChange={setA("address")} placeholder="House number, street, area and city" />
+          <TextField why="phoneThen" label="Your phone number at that time" value={at.phone} onChange={setA("phone")} type="tel" inputMode="tel" placeholder="Optional, if you remember it" />
           <div className="field-row three">
-            <TextField label="Next of kin at that time" value={at.nextOfKinName} onChange={setA("nextOfKinName")} placeholder="Full name" />
+            <TextField why="kin" label="Next of kin at that time" value={at.nextOfKinName} onChange={setA("nextOfKinName")} placeholder="Full name" />
             <TextField label="Relationship" value={at.nextOfKinRelationship} onChange={setA("nextOfKinRelationship")} placeholder="e.g. Spouse, mother" />
             <TextField label="Their phone" value={at.nextOfKinPhone} onChange={setA("nextOfKinPhone")} type="tel" inputMode="tel" placeholder="Optional" />
           </div>
@@ -350,20 +356,21 @@ export default function PilotPage() {
         <div className="stack">
           <section className="card">
             <h1>Sign and send</h1>
+            <StepNote k={4} />
             <p className="lede">Add your photo and signature. They go on your mandate form and on your letter of authority.</p>
-            <FileDrop label="Passport photograph" accept="image/*" icon={<PhotoIcon />}
+            <FileDrop why="photo" label="Passport photograph" accept="image/*" icon={<PhotoIcon />}
               hint="A clear, recent photo on a plain background. It goes in the passport box on the form."
               filledLabel={photo ? "Photo added. Tap to replace" : null} preview={photo}
               onFile={async (f) => setPhoto(await resizeImage(f))} />
             <div className="field" style={{ marginTop: 12 }}>
-              <span className="label">Signature</span>
+              <LabelWithWhy k="signature">Signature</LabelWithWhy>
               <SignaturePad value={signature} onChange={setSignature} />
               <p className="tiny">Sign the way you signed when you bought the shares. Registrars compare it with their specimen.</p>
             </div>
           </section>
 
           <section className="card">
-            <h2>Our fee, in plain words</h2>
+            <h2>Our fee, in plain words <Why k="fee" /></h2>
             <p className="tiny">You pay a small start fee now for each company. The registrar pays any dividend straight into your own account. Dividendii never holds your dividend.</p>
             <div className="ledger" style={{ margin: "10px 0" }}>
               <div className="row"><span className="k">Start fee: {naira(perCompany)} × {held.length} {held.length === 1 ? "company" : "companies"}</span><span className="v">{nairaExact(feeBeforeVat)}</span></div>
@@ -373,11 +380,10 @@ export default function PilotPage() {
             </div>
             <p className="tiny">
               {cfg.payOnline
-                ? <>You pay on Paystack&apos;s secure page by card, bank transfer or USSD. We send your forms as soon as the payment is confirmed. </>
+                ? <>You pay on the payment gateway&apos;s secure page by card, bank transfer or USSD. We send your forms as soon as the payment is confirmed. </>
                 : <>We will email you how to pay the start fee. </>}
               The start fee covers our work and is not a promise that money will be found. The {rate}% is never taken before you are paid: we write to you and you pay it then.
             </p>
-            {cfg.payOnline && cfg.payMode === "test" && <p className="tiny"><b>Test payments:</b> no real money moves. Use Paystack&apos;s test card 4084 0840 8408 4081, any future date, CVV 408.</p>}
             <div style={{ marginTop: 12 }}>
               <Check checked={payAck} onToggle={() => setPayAck((v) => !v)}>
                 <b>I understand the fees above.</b> I agree to pay {nairaExact(total)} now and {rate}% of any dividend I receive.
@@ -386,7 +392,7 @@ export default function PilotPage() {
           </section>
 
           <section className="card">
-            <h2>Your go-ahead</h2>
+            <h2>Your go-ahead <Why k="goAhead" /></h2>
             <Check checked={consent} onToggle={() => setConsent((v) => !v)}>
               <b>I let Dividendii act for me on the companies I listed.</b> That means completing my registrar mandate form, signing a letter of authority with the signature I drew, and emailing both, with my passport photo and the details I gave, to the registrar. It covers these holdings only. Dividendii can&apos;t sell or transfer my shares, and can&apos;t receive my money.
             </Check>

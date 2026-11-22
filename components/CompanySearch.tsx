@@ -2,6 +2,7 @@
 
 import { useId, useMemo, useState } from "react";
 import type { PilotCompany } from "@/lib/pilot/config";
+import { Why } from "@/components/Why";
 import { NOT_COVERED_HINT, searchCompanies } from "@/lib/pilot/companySearch";
 
 /** Type a company's name, tap the match: it is added and its registrar is filled in from our own list. */
@@ -18,7 +19,7 @@ export function CompanySearch({ companies, isHeld, onAdd }: {
 
   return (
     <div className="find">
-      <label htmlFor={id} className="label" style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 6 }}>Type the name of a company you hold shares in</label>
+      <div className="label-row"><label htmlFor={id} className="label" style={{ display: "block", fontSize: 13, fontWeight: 500 }}>Type the name of a company you hold shares in</label><Why k="search" /></div>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <input id={id} className="input" style={{ flex: 1, minWidth: 0 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="For example: Zenith, MTN, Dangote, Nestle" autoComplete="off" autoCapitalize="none" spellCheck={false} />
         {q && <button type="button" className="btn ghost sm" onClick={() => setQ("")}>Clear</button>}

@@ -1,6 +1,8 @@
 "use client";
 
 import { useId, type HTMLAttributes } from "react";
+import { LabelWithWhy } from "./Why";
+import type { WhyKey } from "@/lib/pilot/whyCopy";
 
 interface TextFieldProps {
   label: string;
@@ -14,13 +16,15 @@ interface TextFieldProps {
   maxLength?: number;
   autoComplete?: string;
   disabled?: boolean;
+  /** Adds the (i) pop-up beside the label. */
+  why?: WhyKey;
 }
 
-export function TextField({ label, value, onChange, placeholder, hint, error, type = "text", inputMode, maxLength, autoComplete, disabled }: TextFieldProps) {
+export function TextField({ label, value, onChange, placeholder, hint, error, type = "text", inputMode, maxLength, autoComplete, disabled, why }: TextFieldProps) {
   const id = useId();
   return (
     <div className="field">
-      <label htmlFor={id}>{label}</label>
+      {why ? <LabelWithWhy htmlFor={id} k={why}>{label}</LabelWithWhy> : <label htmlFor={id}>{label}</label>}
       <input
         id={id} className={error ? "input invalid" : "input"} value={value} type={type}
         onChange={(e) => onChange(e.target.value)} placeholder={placeholder} inputMode={inputMode}
@@ -39,13 +43,14 @@ interface SelectFieldProps {
   options: string[];
   placeholder: string;
   error?: string;
+  why?: WhyKey;
 }
 
-export function SelectField({ label, value, onChange, options, placeholder, error }: SelectFieldProps) {
+export function SelectField({ label, value, onChange, options, placeholder, error, why }: SelectFieldProps) {
   const id = useId();
   return (
     <div className="field">
-      <label htmlFor={id}>{label}</label>
+      {why ? <LabelWithWhy htmlFor={id} k={why}>{label}</LabelWithWhy> : <label htmlFor={id}>{label}</label>}
       <select id={id} className={error ? "input invalid" : "input"} value={value} onChange={(e) => onChange(e.target.value)} aria-invalid={!!error}>
         <option value="">{placeholder}</option>
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
