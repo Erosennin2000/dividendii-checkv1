@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { withBase } from "@/lib/base";
 import { nairaExact } from "@/lib/site";
 import { CompanyPicker } from "@/components/CompanyPicker";
+import { CompanySearch } from "@/components/CompanySearch";
 import { Check, SelectField, TextField } from "@/components/Field";
 import { FileDrop } from "@/components/FileDrop";
 import { SignaturePad } from "@/components/SignaturePad";
@@ -13,7 +14,7 @@ import { naira } from "@/lib/domain/fees";
 import { emptyProfile } from "@/lib/forms/registry";
 import type { FormProfile } from "@/lib/forms/types";
 import { resizeImage } from "@/lib/image";
-import { DEBIT_RATE, PAY_AHEAD_PER_COMPANY, PILOT_REGISTRARS, companiesFor, type PilotRegistrarId } from "@/lib/pilot/config";
+import { DEBIT_RATE, PAY_AHEAD_PER_COMPANY, PILOT_COMPANIES, PILOT_REGISTRARS, companiesFor, type PilotCompany, type PilotRegistrarId } from "@/lib/pilot/config";
 import type { PaymentMethod, PilotInput } from "@/lib/pilot/types";
 import { pilotProblemsByStep, type PilotStep } from "@/lib/pilot/validate";
 import { errorMessage } from "@/lib/util";
@@ -77,6 +78,10 @@ export default function PilotPage() {
     () => companiesFor(regId).map((c) => c.company).filter((c) => !held.some((h) => h.registrarId === regId && h.company === c)),
     [regId, held],
   );
+  // The company search only offers registrars that are switched on.
+  const searchable = useMemo(() => PILOT_COMPANIES.filter((c) => cfg.registrars.some((r) => r.id === c.registrarId)), [cfg.registrars]);
+  const isHeld = (c: PilotCompany) => held.some((h) => h.registrarId === c.registrarId && h.company === c.company);
+  const addFound = (c: PilotCompany) => setHeld((h) => (h.some((x) => x.registrarId === c.registrarId && x.company === c.company) ? h : [...h, { registrarId: c.registrarId, company: c.company }]));
   const byRegistrar = PILOT_REGISTRARS.map((r) => ({ r, items: held.filter((h) => h.registrarId === r.id) })).filter((g) => g.items.length);
   const feeBeforeVat = held.length * perCompany;
   const total = Math.round(feeBeforeVat * 1.075 * 100) / 100;
@@ -256,7 +261,9 @@ export default function PilotPage() {
       {step === 2 && (
         <section className="card">
           <h1>Where do you hold shares?</h1>
-          <p className="lede">Pick a registrar, tick every company you hold there, then press Add. Then do the same for any other registrar you have shares with.</p>
+          <p className="lede">Type a company&apos;s name and we&apos;ll find its registrar for you. Or, if you already know your registrar, choose it below and tick your companies.</p>
+          <CompanySearch companies={searchable} isHeld={isHeld} onAdd={addFound} />
+          <p className="tiny" style={{ margin: "18px 0 10px", fontWeight: 600 }}>Or choose the registrar yourself</p>
           <SelectField label="Registrar" value={regName} onChange={(v) => { setRegName(v); }} options={cfg.registrars.map((r) => r.name)} placeholder="Choose a registrar" />
           <CompanyPicker key={regId} options={options} disabled={!regId} placeholder={regId ? "Tick your companies" : "Choose a registrar first"} onAdd={addCompanies} />
 
