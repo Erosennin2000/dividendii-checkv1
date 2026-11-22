@@ -1,69 +1,102 @@
 import "server-only";
-import { PaystackError, paystackBanks, paystackMode, resolveAccount } from "./paystack";
-import { lookupCore, matchBank, monnifyBase, monnifyMode, monnifyOn, type LookupDetail } from "./monnify";
+import { matchBank, monnifyBanks, monnifyMode, monnifyOn, rawAccountLookup, suggestBanks, unmatchedBanks, monnifyBase, type AccountLookup, type BankMatch } from "./monnify";
+import { PaystackReply, paystackBanks, paystackMode, paystackOn, paystackResolve } from "./paystack";
+import { BANK_GROUPS } from "./banks";
 
 /**
- * "The bank shows this account as ..." on step 3, from whichever provider is on a live key. Free either way.
- *   Monnify (live keys)     first. Its "no such account" answer is clear enough to stop step 3.
- *   Paystack (live key)     used when Monnify is off or sandbox, and as a back-up when Monnify can't answer.
- *                           Paystack's "could not resolve" is also what it says when a bank is slow, so it only ever
- *                           WARNS ("unconfirmed"), it never stops a customer.
- * Sandbox and test keys are never used: they answer for pretend banks.
+ * Which service looks up "the bank shows this account as ...". Paystack by default, because its key is already live.
+ * Set ACCOUNT_LOOKUP=monnify in Vercel to switch back to Monnify. Monnify still does the BVN check either way.
+ * With nothing set, Paystack is used if its key exists, otherwise Monnify if its keys exist, otherwise no lookup.
+ *
+ * Paystack can say "found" but its "could not resolve" also happens when a bank is slow, so Paystack never says "no such account".
+ * Only Monnify can stop step 3 (see monnify.ts). A failed or empty Paystack answer always lets the customer carry on.
  */
-export type Provider = "monnify" | "paystack";
+export type LookupProvider = "paystack" | "monnify" | "off";
 
-export function lookupProviders(): Provider[] {
-  const out: Provider[] = [];
-  if (monnifyOn() && monnifyMode() === "live") out.push("monnify");
-  if (paystackMode() === "live") out.push("paystack");
-  return out;
+export function lookupProvider(env: NodeJS.ProcessEnv = process.env): LookupProvider {
+  const want = (env.ACCOUNT_LOOKUP ?? "").trim().toLowerCase();
+  if (want === "monnify") return monnifyOn(env) ? "monnify" : "off";
+  if (want === "paystack") return paystackOn(env) ? "paystack" : "off";
+  return paystackOn(env) ? "paystack" : monnifyOn(env) ? "monnify" : "off";
 }
-export const accountLookupOn = () => lookupProviders().length > 0;
+export const accountLookupOn = (env: NodeJS.ProcessEnv = process.env) => lookupProvider(env) !== "off";
+/** "off" | "test"/"sandbox" | "live" for whichever service does the lookup. */
+export function lookupMode(env: NodeJS.ProcessEnv = process.env): "off" | "test" | "live" {
+  const p = lookupProvider(env);
+  if (p === "paystack") return paystackMode(env) === "live" ? "live" : "test";
+  if (p === "monnify") return monnifyMode(env) === "live" ? "live" : "test";
+  return "off";
+}
 
-const COULD_NOT_RESOLVE = /could not resolve|unable to resolve|invalid (account|nuban)|account (number )?(is )?(invalid|not found)/i;
-const NOT_ABOUT_THE_ACCOUNT = /bank ?code|invalid bank|unsupported|rate limit|too many|unauthori[sz]ed|invalid key|api ?key|permission|suspended|not (yet )?(enabled|available|supported)|try again later|service/i;
+export interface LookupDetail {
+  provider: LookupProvider;
+  verdict: AccountLookup["status"];
+  name?: string;
+  bankMatch: BankMatch | null;
+  httpStatus?: number;
+  providerMessage?: string;
+  note: string;
+  mode: "off" | "test" | "live";
+  base: string;
+}
 
-export async function paystackLookupCore(bankName: string, accountNumber: string): Promise<LookupDetail> {
-  const provider = "paystack" as const;
-  if (!/^\d{10}$/.test(accountNumber)) return { verdict: "unavailable", bankMatch: null, note: "The account number is not 10 digits.", provider };
-  let match: ReturnType<typeof matchBank> = null;
+const PAYSTACK_BASE = "https://api.paystack.co";
+
+async function viaPaystack(bankName: string, accountNumber: string): Promise<LookupDetail> {
+  const mode = lookupMode();
+  const base = { provider: "paystack" as const, mode, base: PAYSTACK_BASE };
+  if (!/^\d{10}$/.test(accountNumber)) return { ...base, verdict: "unavailable", bankMatch: null, note: "The account number is not 10 digits." };
+  let match: BankMatch | null = null;
   try {
     match = matchBank(bankName, await paystackBanks());
-    if (!match) return { verdict: "unavailable", bankMatch: null, note: `"${bankName}" is not in Paystack's bank list under this name, so no lookup was made.`, provider };
-    const name = await resolveAccount(match.code, accountNumber);
-    if (name) return { verdict: "found", name, bankMatch: match, httpStatus: 200, providerMessage: "Account number resolved", note: "Paystack gave a name.", provider };
-    return { verdict: "unavailable", bankMatch: match, httpStatus: 200, note: "Paystack answered without a name, so we cannot tell.", provider };
+    if (!match) return { ...base, verdict: "unavailable", bankMatch: null, note: `"${bankName}" is not in Paystack's bank list under this name, so no lookup was made.` };
+    const r = await paystackResolve(match.code, accountNumber);
+    if (r.name) return { ...base, verdict: "found", name: r.name, bankMatch: match, httpStatus: r.httpStatus, providerMessage: r.message, note: "Paystack gave a name." };
+    const why =
+      r.httpStatus === 422 ? "Paystack could not resolve this account. It says that for a wrong number, but also when a bank is slow, so nothing is blocked."
+      : r.httpStatus === 401 ? "Paystack did not accept the key. Check PAYSTACK_SECRET_KEY in Vercel."
+      : r.httpStatus === 403 ? "Paystack refused the request. If you added an IP address under Developers, API configuration, remove it: Vercel's addresses change, so a list there blocks us."
+      : r.httpStatus === 429 ? "Paystack says too many lookups too fast. Nothing is blocked."
+      : mode !== "live" ? "This is a Paystack test key. Test mode cannot look up real accounts. Nothing is blocked."
+      : "Paystack's reply was not a name, so nothing is blocked.";
+    return { ...base, verdict: "unavailable", bankMatch: match, httpStatus: r.httpStatus, providerMessage: r.message, note: why };
   } catch (e) {
-    if (!(e instanceof PaystackError)) return { verdict: "unavailable", bankMatch: match, note: "Could not reach Paystack.", provider };
-    const base = { bankMatch: match, httpStatus: e.status, providerMessage: e.message, provider };
-    const couldNotResolve = e.status === 422 && COULD_NOT_RESOLVE.test(e.message) && !NOT_ABOUT_THE_ACCOUNT.test(e.message);
-    if (!couldNotResolve) return { verdict: "unavailable", ...base, note: "Paystack's reply was not a plain \"could not resolve\", so nothing is said to the customer." };
-    if (match?.confidence !== "exact") return { verdict: "unavailable", ...base, note: "The bank name was only a close match, so we cannot be sure we asked the right bank." };
-    return { verdict: "unconfirmed", ...base, note: "Paystack could not resolve this account. The customer sees a warning to check the number, but is never stopped: Paystack says the same thing when a bank is slow." };
+    if (e instanceof PaystackReply) return { ...base, verdict: "unavailable", bankMatch: match, httpStatus: e.status, providerMessage: e.message, note: "Paystack did not answer the bank list or lookup properly. Nothing is blocked." };
+    return { ...base, verdict: "unavailable", bankMatch: match, note: "Could not reach Paystack." };
   }
 }
 
-async function one(p: Provider, bank: string, acct: string): Promise<LookupDetail> {
-  if (p === "paystack") return paystackLookupCore(bank, acct);
-  const r = await lookupCore(bank, acct);
-  return { ...r, provider: "monnify", providerMessage: r.monnifyMessage };
+/** Staff and customers both go through this, so the "try one account" box shows exactly what a customer would get. Never throws. */
+export async function lookupDetail(bankName: string, accountNumber: string): Promise<LookupDetail> {
+  const provider = lookupProvider();
+  if (provider === "off") return { provider, verdict: "unavailable", bankMatch: null, note: "No bank lookup is switched on. Set PAYSTACK_SECRET_KEY (or the Monnify keys) in Vercel.", mode: "off", base: "" };
+  if (provider === "paystack") return viaPaystack(bankName, accountNumber);
+  const r = await rawAccountLookup(bankName, accountNumber);
+  return { provider, verdict: r.verdict, name: r.name, bankMatch: r.bankMatch, httpStatus: r.httpStatus, providerMessage: r.monnifyMessage, note: r.note, mode: r.mode === "live" ? "live" : r.mode === "off" ? "off" : "test", base: r.base };
 }
 
-/** What step 3 uses. Tries each live provider in turn until one gives an answer other than "unavailable". */
-export async function lookupAccount(bank: string, acct: string): Promise<LookupDetail & { tried: Provider[] }> {
-  const providers = lookupProviders();
-  let last: LookupDetail = { verdict: "unavailable", bankMatch: null, note: "No account lookup is switched on (needs live Paystack or live Monnify keys)." };
-  const tried: Provider[] = [];
-  for (const p of providers) {
-    tried.push(p);
-    try { last = await one(p, bank, acct); } catch { last = { verdict: "unavailable", bankMatch: null, note: `${p} failed.`, provider: p }; }
-    if (last.verdict !== "unavailable") break;
+export async function lookupAccountName(bankName: string, accountNumber: string): Promise<AccountLookup> {
+  const r = await lookupDetail(bankName, accountNumber);
+  if (r.verdict === "found" && r.name) return { status: "found", name: r.name };
+  if (r.verdict === "not_found") return { status: "not_found" };
+  return { status: "unavailable" };
+}
+
+/** Staff: connect to whichever service does the lookup, download its bank list and say which of our banks it cannot match. Free. */
+export async function lookupBankCheck() {
+  const provider = lookupProvider();
+  const mode = lookupMode();
+  if (provider === "off") return { provider, mode, ok: false, message: "No bank lookup is switched on. Set PAYSTACK_SECRET_KEY in Vercel." };
+  const label = provider === "paystack" ? "Paystack" : "Monnify";
+  try {
+    const banks = provider === "paystack" ? await paystackBanks() : await monnifyBanks();
+    const ours = BANK_GROUPS.flatMap((g) => g.banks);
+    const missing = unmatchedBanks(ours, banks);
+    return {
+      provider, mode, ok: true, label, base: provider === "paystack" ? PAYSTACK_BASE : monnifyBase(), providerBanks: banks.length, ours: ours.length, matched: ours.length - missing.length,
+      unmatched: missing, unmatchedDetail: missing.map((name) => ({ name, near: suggestBanks(name, banks, 3) })),
+    };
+  } catch (e) {
+    return { provider, mode, ok: false, label, message: e instanceof Error ? e.message : `${label} did not answer.` };
   }
-  return { ...last, tried };
-}
-
-/** Staff "try one account": the same decision a customer would get, plus what each provider said. Never throws. */
-export async function tryAccount(bank: string, acct: string): Promise<LookupDetail & { tried: Provider[]; mode: string; base: string; paystackMode: string }> {
-  const r = await lookupAccount(bank, acct);
-  return { ...r, mode: monnifyMode(), base: monnifyBase(), paystackMode: paystackMode() };
 }

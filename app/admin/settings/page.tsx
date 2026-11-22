@@ -188,43 +188,32 @@ export default function PilotSettingsPage() {
             {" "}It is switched by the PAYSTACK_SECRET_KEY setting in Vercel, not here.
           </p>
           <p className="tiny">
-            Bank checks (Monnify): {view.monnify === "live" ? <b>live. Account names are looked up free; the BVN and account name match costs ₦10 per submission, once, after the start fee is paid. It never stops anyone, and is skipped if your Monnify wallet is empty.</b>
-              : view.monnify === "sandbox" ? <b>sandbox. Account name lookups only. BVN checks need live keys.</b>
+            Account number lookup ({view.lookup?.provider === "monnify" ? "Monnify" : "Paystack"}): {view.lookup && view.lookup.provider !== "off"
+              ? (view.lookup.mode === "live" ? <b>live. Account names are looked up free on step 3. A failed lookup never stops anyone.</b>
+                : <b>test keys. Test keys cannot look up real accounts, so nothing is checked. Use the live key.</b>)
               : <b>off. Nothing is looked up.</b>}
-            {" "}It is switched by MONNIFY_API_KEY and MONNIFY_SECRET_KEY in Vercel, not here.
-            <br />Account name lookup on step 3 (free): {view.lookup && view.lookup.length > 0
-              ? <b>on, using {view.lookup.map((p) => (p === "monnify" ? "Monnify" : "Paystack")).join(", then ")}.{view.lookup[0] === "paystack" ? " Paystack can warn a customer to check the number but never stops them." : ""}</b>
-              : <b>off. It needs live Paystack keys or live Monnify keys; sandbox and test keys are not used.</b>}
-            {((view.monnify && view.monnify !== "off") || (view.paystack && view.paystack !== "off")) && (
-              <> <button type="button" className="btn ghost sm" disabled={busy === "monnify"} onClick={async () => { setBusy("monnify"); try { setMcheck(await checkMonnify()); } catch (e) { setError(e instanceof Error ? e.message : "Couldn't check."); } finally { setBusy(null); } }}>{busy === "monnify" ? "Checking…" : "Test the bank lookups (free)"}</button></>
+            {" "}Paystack is used by default. To switch to Monnify, add ACCOUNT_LOOKUP=monnify in Vercel and redeploy.
+            {view.lookup && view.lookup.provider !== "off" && (
+              <> <button type="button" className="btn ghost sm" disabled={busy === "monnify"} onClick={async () => { setBusy("monnify"); try { setMcheck(await checkMonnify()); } catch (e) { setError(e instanceof Error ? e.message : "Couldn't check."); } finally { setBusy(null); } }}>{busy === "monnify" ? "Checking…" : "Test the bank lookup connection (free)"}</button></>
             )}
           </p>
-          {mcheck?.paystack && (
-            <div className="tiny" role="status">
-              {mcheck.paystack.ok
-                ? <>
-                    <p>Paystack ({mcheck.paystack.mode}) lists {mcheck.paystack.banks} banks and we matched {mcheck.paystack.matched} of our {mcheck.paystack.ours}.</p>
-                    {mcheck.paystack.unmatchedDetail && mcheck.paystack.unmatchedDetail.length > 0 && (
-                      <>
-                        <p>Not matched on Paystack (these get no lookup there). Closest names it has. Send me this list.</p>
-                        <ul>{mcheck.paystack.unmatchedDetail.map((u) => <li key={u.name}><b>{u.name}</b>{u.near.length > 0 ? <> &rarr; {u.near.map((n) => n.name).join(" | ")}</> : <> &rarr; nothing close</>}</li>)}</ul>
-                      </>
-                    )}
-                  </>
-                : <b>Paystack bank list: {mcheck.paystack.message}</b>}
-            </div>
-          )}
+          <p className="tiny">
+            BVN check (Monnify): {view.monnify === "live" ? <b>live. The BVN and account name match costs ₦10 per submission, once, after the start fee is paid. It never stops anyone, and is skipped if your Monnify wallet is empty.</b>
+              : view.monnify === "sandbox" ? <b>sandbox. BVN checks need live keys, so none are run.</b>
+              : <b>off. No BVN checks are run.</b>}
+            {" "}It is switched by MONNIFY_API_KEY and MONNIFY_SECRET_KEY in Vercel, not here.
+          </p>
           {mcheck && (
             <div className="tiny" role="status">
               {mcheck.ok
                 ? <>
-                    <p>Connected to Monnify ({mcheck.mode}). It lists {mcheck.monnifyBanks} banks and we matched {mcheck.matched} of our {mcheck.ours}.</p>
+                    <p>Connected to {mcheck.label ?? "the lookup service"} ({mcheck.mode}). It lists {mcheck.providerBanks} banks and we matched {mcheck.matched} of our {mcheck.ours}.</p>
                     {mcheck.unmatchedDetail && mcheck.unmatchedDetail.length > 0 && (
                       <>
-                        <p>Not matched yet. These still let the customer carry on, but get no bank lookup until the name is fixed. Closest names Monnify has are shown, so you can see whether the bank is missing or just spelled differently. Send me this list.</p>
+                        <p>Not matched yet. These still let the customer carry on, but get no bank lookup until the name is fixed. Closest names it has are shown, so you can see whether the bank is missing or just spelled differently. Send me this list.</p>
                         <ul>
                           {mcheck.unmatchedDetail.map((u) => (
-                            <li key={u.name}><b>{u.name}</b>{u.near.length > 0 ? <> &rarr; {u.near.map((n) => n.name).join(" | ")}</> : <> &rarr; nothing close in Monnify&apos;s list</>}</li>
+                            <li key={u.name}><b>{u.name}</b>{u.near.length > 0 ? <> &rarr; {u.near.map((n) => n.name).join(" | ")}</> : <> &rarr; nothing close in its list</>}</li>
                           ))}
                         </ul>
                       </>
@@ -233,9 +222,9 @@ export default function PilotSettingsPage() {
                 : <b>Couldn&apos;t connect: {mcheck.message}</b>}
             </div>
           )}
-          {view.lookup && view.lookup.length > 0 && (
+          {view.lookup && view.lookup.provider !== "off" && (
             <div className="tiny" style={{ marginTop: 8 }}>
-              <b>Try one account (free).</b> Pick a bank, type a real 10-digit account number and see exactly what a customer would see, and what the bank lookup said. Nothing is saved.
+              <b>Try one account (free).</b> Pick a bank, type a real 10-digit account number and see exactly what the lookup service says. Nothing is saved.
               <div className="field-row" style={{ marginTop: 6 }}>
                 <select className="input" value={tryBank} onChange={(e) => setTryBank(e.target.value)} aria-label="Bank">
                   <option value="">Choose a bank</option>
@@ -253,17 +242,15 @@ export default function PilotSettingsPage() {
                     <b>A customer would see: </b>
                     {tryOut.verdict === "found" ? <>&ldquo;The bank shows this account as {tryOut.name}.&rdquo;</>
                       : tryOut.verdict === "not_found" ? <>&ldquo;We couldn&apos;t find this account at this bank.&rdquo; Step 3 would stop here.</>
-                      : tryOut.verdict === "unconfirmed" ? <>&ldquo;We couldn&apos;t confirm this account with the bank. Please double-check.&rdquo; A warning only; the customer can carry on.</>
                       : <>&ldquo;We couldn&apos;t check it with the bank just now, you can carry on.&rdquo;</>}
                   </p>
                   <p>{tryOut.note}</p>
                   <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", margin: 0 }}>{[
-                    `Asked: ${tryOut.tried.length ? tryOut.tried.join(", then ") : "nobody (no live lookup keys)"}. Answered by: ${tryOut.provider ?? "nobody"}`,
-                    `Monnify: ${tryOut.mode} (${tryOut.base}). Paystack: ${tryOut.paystackMode}.`,
+                    `Service: ${tryOut.provider}, mode: ${tryOut.mode} (${tryOut.base})`,
                     `Our bank: ${tryBank}`,
-                    `Matched to their list: ${tryOut.bankMatch ? `${tryOut.bankMatch.name} (code ${tryOut.bankMatch.code}, ${tryOut.bankMatch.confidence} match)` : "nothing"}`,
+                    `Matched to its list: ${tryOut.bankMatch ? `${tryOut.bankMatch.name} (code ${tryOut.bankMatch.code}, ${tryOut.bankMatch.confidence} match)` : "nothing"}`,
                     `HTTP status: ${tryOut.httpStatus ?? "none"}`,
-                    `They said: ${tryOut.providerMessage ?? "nothing"}`,
+                    `It said: ${tryOut.providerMessage ?? "nothing"}`,
                   ].join("\n")}</pre>
                 </div>
               )}

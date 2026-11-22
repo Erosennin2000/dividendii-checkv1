@@ -53,8 +53,8 @@ export default function PilotPage() {
   const [lead, setLead] = useState<{ id: string; demo: boolean } | null>(null);
   const [code, setCode] = useState("");
   const [token, setToken] = useState<string | null>(null);
-  // "The bank shows this account as ..." (free Monnify lookup). Only a clear "no such account" stops step 3; a name mismatch or a failed lookup never does.
-  const [acctCheck, setAcctCheck] = useState<{ status: "found" | "not_found" | "unconfirmed" | "unavailable"; name: string | null; key: string } | null>(null);
+  // "The bank shows this account as ..." (free bank name lookup, Paystack by default). Only a clear "no such account" stops step 3; a name mismatch or a failed lookup never does.
+  const [acctCheck, setAcctCheck] = useState<{ status: "found" | "not_found" | "unavailable"; name: string | null; key: string } | null>(null);
   // Step 2
   const [regName, setRegName] = useState("");
   const [held, setHeld] = useState<Held[]>([]);
@@ -148,7 +148,10 @@ export default function PilotPage() {
     } catch (e) { setError(errorMessage(e)); setBusy(false); }
   }
 
-  // Hooks must all run before the early returns below, or React crashes once the result screen shows.
+  if (result) return <Done r={result} email={profile.email} first={profile.firstName} rate={rate} perCompany={perCompany} />;
+  if (!cfg.open) return <div className="card" style={{ maxWidth: 560, margin: "48px auto" }}><h1 style={{ fontSize: 28 }}>We&apos;ve paused new submissions</h1><p className="lede">We aren&apos;t taking new forms for a short while. Please check back soon.</p></div>;
+
+
   useEffect(() => {
     const bank = profile.bankName, acct = profile.accountNumber;
     if (step !== 3 || !token || !bank || acct.length !== 10) { setAcctCheck(null); return; }
@@ -156,15 +159,12 @@ export default function PilotPage() {
     const key = bank + "|" + acct;
     const t = setTimeout(async () => {
       try {
-        const r = await post<{ status: "found" | "not_found" | "unconfirmed" | "unavailable"; name: string | null }>("/api/pilot/lookup", { token, bank, accountNumber: acct });
+        const r = await post<{ status: "found" | "not_found" | "unavailable"; name: string | null }>("/api/pilot/lookup", { token, bank, accountNumber: acct });
         if (live) setAcctCheck({ status: r.status, name: r.name, key });
       } catch { if (live) setAcctCheck({ status: "unavailable", name: null, key }); }
     }, 500);
     return () => { live = false; clearTimeout(t); };
   }, [step, token, profile.bankName, profile.accountNumber]);
-
-  if (result) return <Done r={result} email={profile.email} first={profile.firstName} rate={rate} perCompany={perCompany} />;
-  if (!cfg.open) return <div className="card" style={{ maxWidth: 560, margin: "48px auto" }}><h1 style={{ fontSize: 28 }}>We&apos;ve paused new submissions</h1><p className="lede">We aren&apos;t taking new forms for a short while. Please check back soon.</p></div>;
 
   // Account check for the current bank + number. Only "not_found" blocks; while we are still asking, the button waits a moment.
   const acctKey = profile.bankName + "|" + profile.accountNumber;
@@ -304,7 +304,6 @@ export default function PilotPage() {
                 : bankChecking ? "Checking with your bank…"
                 : acctNow?.status === "found" ? "Account found."
                 : acctNow?.status === "unavailable" ? "10 digits. We couldn't check it with the bank just now, you can carry on."
-                : acctNow?.status === "unconfirmed" ? "We couldn't confirm this account with the bank. Please double-check the number and the bank. If both are right, you can carry on."
                 : "10 digits."}
               error={profile.accountNumber.length > 0 && profile.accountNumber.length < 10 ? "An account number has exactly 10 digits."
                 : acctNow?.status === "not_found" ? "We couldn't find this account at this bank. Please check the number and the bank." : undefined} />
@@ -367,10 +366,11 @@ export default function PilotPage() {
             </div>
             <p className="tiny">
               {cfg.payOnline
-                ? <>You pay on the payment gateway&apos;s secure page by card, bank transfer or USSD. We send your forms as soon as the payment is confirmed. </>
+                ? <>You pay on Paystack&apos;s secure page by card, bank transfer or USSD. We send your forms as soon as the payment is confirmed. </>
                 : <>We will email you how to pay the start fee. </>}
               The start fee covers our work and is not a promise that money will be found. The {rate}% is never taken before you are paid: we write to you and you pay it then.
             </p>
+            {cfg.payOnline && cfg.payMode === "test" && <p className="tiny"><b>Test payments:</b> no real money moves. Use Paystack&apos;s test card 4084 0840 8408 4081, any future date, CVV 408.</p>}
             <div style={{ marginTop: 12 }}>
               <Check checked={payAck} onToggle={() => setPayAck((v) => !v)}>
                 <b>I understand the fees above.</b> I agree to pay {nairaExact(total)} now and {rate}% of any dividend I receive.

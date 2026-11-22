@@ -137,7 +137,7 @@ export interface SettingsView {
   smtp: { configured: boolean; host: string; user: string; hasPassword: boolean };
   paystack?: "off" | "test" | "live";
   monnify?: "off" | "sandbox" | "live";
-  lookup?: ("monnify" | "paystack")[];
+  lookup?: { provider: "paystack" | "monnify" | "off"; mode: "off" | "test" | "live" };
   registrars: { id: string; name: string; formEmail: string; companies: number }[];
 }
 
@@ -154,18 +154,18 @@ export async function sendTestEmail(to: string): Promise<{ from: string; to: str
 }
 
 export interface MonnifyCheck {
-  mode: "off" | "sandbox" | "live"; ok: boolean; message?: string; base?: string; monnifyBanks?: number; ours?: number; matched?: number;
+  provider?: "paystack" | "monnify" | "off"; label?: string;
+  mode: "off" | "test" | "live"; ok: boolean; message?: string; base?: string; providerBanks?: number; ours?: number; matched?: number;
   unmatched?: string[]; unmatchedDetail?: { name: string; near: { name: string; code: string }[] }[];
-  paystack?: { mode: string; ok: boolean; banks?: number; matched?: number; ours?: number; unmatchedDetail?: { name: string; near: { name: string; code: string }[] }[]; message?: string };
 }
 export async function checkMonnify(): Promise<MonnifyCheck> {
   return (await (await authed("/api/pilot/monnify-check")).json()) as MonnifyCheck;
 }
 
 export interface MonnifyTry {
-  verdict: "found" | "not_found" | "unconfirmed" | "unavailable"; name?: string; note: string; httpStatus?: number; providerMessage?: string; provider?: "monnify" | "paystack";
-  tried: ("monnify" | "paystack")[]; paystackMode: string;
-  bankMatch: { code: string; name: string; confidence: "exact" | "fuzzy" } | null; mode: "off" | "sandbox" | "live"; base: string;
+  provider: "paystack" | "monnify" | "off";
+  verdict: "found" | "not_found" | "unavailable"; name?: string; note: string; httpStatus?: number; providerMessage?: string;
+  bankMatch: { code: string; name: string; confidence: "exact" | "fuzzy" } | null; mode: "off" | "test" | "live"; base: string;
 }
 export async function tryMonnifyAccount(bank: string, accountNumber: string): Promise<MonnifyTry> {
   return (await (await authed("/api/pilot/monnify-check", { method: "POST", body: JSON.stringify({ bank, accountNumber }) })).json()) as MonnifyTry;

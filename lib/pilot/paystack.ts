@@ -20,43 +20,19 @@ let fetchOverride: Fetch | null = null;
 /** Tests swap the network out. */
 export const setPaystackFetchForTests = (f: Fetch | null) => { fetchOverride = f; };
 
-export class PaystackError extends Error { constructor(message: string, readonly status = 0) { super(message); } }
+export class PaystackError extends Error {}
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const key = paystackKey();
-  if (!key) throw new PaystackError("Online payment is not set up yet.", 0);
+  if (!key) throw new PaystackError("Online payment is not set up yet.");
   const res = await (fetchOverride ?? fetch)(API + path, {
     ...init,
     headers: { authorization: `Bearer ${key}`, "content-type": "application/json", ...(init?.headers ?? {}) },
     cache: "no-store",
   });
   const body = (await res.json().catch(() => null)) as { status?: boolean; message?: string; data?: T } | null;
-  if (!res.ok || !body?.status || !body.data) throw new PaystackError(body?.message || `Paystack replied ${res.status}.`, res.status);
+  if (!res.ok || !body?.status || !body.data) throw new PaystackError(body?.message || `Paystack replied ${res.status}.`);
   return body.data;
-}
-
-// ---------- bank list and free account-name lookup (Nigeria: Resolve Account Number is free on Paystack)
-export interface PaystackBank { name: string; code: string }
-let banksCache: { at: number; list: PaystackBank[] } | null = null;
-export const clearPaystackBanksForTests = () => { banksCache = null; };
-
-/** Paystack's Nigerian bank list (cached six hours). Pages of 100 until a short page. */
-export async function paystackBanks(): Promise<PaystackBank[]> {
-  if (banksCache && Date.now() - banksCache.at < 6 * 3600_000) return banksCache.list;
-  const all: PaystackBank[] = [];
-  for (let page = 1; page <= 6; page++) {
-    const d = await call<{ name: string; code: string; active?: boolean; currency?: string }[]>(`/bank?country=nigeria&perPage=100&page=${page}`);
-    all.push(...d.filter((b) => b.name && b.code && b.active !== false && (!b.currency || b.currency === "NGN")).map((b) => ({ name: b.name, code: b.code })));
-    if (d.length < 100) break;
-  }
-  if (all.length) banksCache = { at: Date.now(), list: all };
-  return all;
-}
-
-/** Throws PaystackError (with the HTTP status) when Paystack can't give a name. */
-export async function resolveAccount(bankCode: string, accountNumber: string): Promise<string | null> {
-  const d = await call<{ account_name?: string }>(`/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`);
-  return d.account_name?.trim() || null;
 }
 
 export interface InitInput {
@@ -109,4 +85,54 @@ export function validWebhookSignature(rawBody: string, header: string | null): b
   const want = Buffer.from(createHmac("sha512", key).update(rawBody).digest("hex"));
   const got = Buffer.from(header.trim().toLowerCase());
   return want.length === got.length && timingSafeEqual(want, got);
+}
+
+// ---------- bank account name lookup (free on a live key)
+export class PaystackReply extends PaystackError {
+  constructor(message: string, readonly status?: number) { super(message); }
+}
+export interface PaystackBank { name: string; code: string }
+
+type RawReply = { status?: boolean; message?: string; data?: unknown; meta?: { next?: string | null } } | null;
+async function get(path: string): Promise<{ httpStatus: number; body: RawReply }> {
+  const key = paystackKey();
+  if (!key) throw new PaystackError("Paystack is not set up.");
+  const res = await (fetchOverride ?? fetch)(API + path, { headers: { authorization: `Bearer ${key}` }, cache: "no-store" });
+  return { httpStatus: res.status, body: (await res.json().catch(() => null)) as RawReply };
+}
+
+let banksCache: { at: number; list: PaystackBank[] } | null = null;
+export const clearPaystackBankCache = () => { banksCache = null; };
+
+/** Paystack's own list of Nigerian banks and their codes. Cached for 12 hours. Codes are never typed in by hand. */
+export async function paystackBanks(): Promise<PaystackBank[]> {
+  if (banksCache && Date.now() - banksCache.at < 12 * 3600_000) return banksCache.list;
+  const out: PaystackBank[] = [];
+  const seen = new Set<string>();
+  let next = "";
+  for (let page = 0; page < 8; page++) {
+    const { httpStatus, body } = await get(`/bank?country=nigeria&currency=NGN&use_cursor=true&perPage=100${next ? `&next=${encodeURIComponent(next)}` : ""}`);
+    if (httpStatus < 200 || httpStatus >= 300 || !body?.status || !Array.isArray(body.data)) throw new PaystackReply(body?.message || `Paystack replied ${httpStatus}.`, httpStatus);
+    for (const b of body.data as { name?: unknown; code?: unknown; active?: unknown }[]) {
+      if (!b?.name || !b?.code || b.active === false) continue;
+      const k = `${b.name}|${b.code}`;
+      if (!seen.has(k)) { seen.add(k); out.push({ name: String(b.name), code: String(b.code) }); }
+    }
+    next = body.meta?.next ?? "";
+    if (!next) break;
+  }
+  if (!out.length) throw new PaystackReply("Paystack sent back an empty bank list.");
+  banksCache = { at: Date.now(), list: out };
+  return out;
+}
+
+export interface PaystackResolve { httpStatus: number; message: string; name?: string }
+
+/** Asks the bank, through Paystack, whose account this is. Never throws on a plain "no": the reply carries the status and Paystack's words. */
+export async function paystackResolve(bankCode: string, accountNumber: string): Promise<PaystackResolve> {
+  const { httpStatus, body } = await get(`/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`);
+  const d = (body?.data ?? {}) as { account_name?: unknown };
+  const name = typeof d.account_name === "string" ? d.account_name.trim() : "";
+  const message = (body?.message || `Paystack replied ${httpStatus}.`).slice(0, 200);
+  return { httpStatus, message, name: httpStatus === 200 && body?.status && name ? name : undefined };
 }
