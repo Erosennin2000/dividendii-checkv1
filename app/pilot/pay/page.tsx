@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { withBase } from "@/lib/base";
+import { successFeeParts } from "@/lib/domain/fees";
 import { nairaExact } from "@/lib/site";
 
 interface Info {
@@ -33,7 +34,8 @@ export default function PayByLinkPage() {
   }, []);
 
   const received = Number(amount.replace(/[,₦\s]/g, ""));
-  const fee = info && Number.isFinite(received) && received > 0 ? Math.round(received * info.ratePercent) / 100 : 0;
+  const parts = info ? successFeeParts(received, info.ratePercent) : { fee: 0, vat: 0, total: 0 };
+  const fee = parts.total; // the percentage plus 7.5% VAT: this is what is charged
 
   async function pay() {
     if (!q) return;
@@ -75,14 +77,16 @@ export default function PayByLinkPage() {
     <div className="pwrap"><section className="card">
       <h1>Your success fee, {info.firstName}</h1>
       {info.success.paid && <p className="lede">We have already received a success fee{info.success.fee != null && <> of <b>{nairaExact(info.success.fee)}</b></>} on reference <b>{info.ref}</b>. Thank you. If you have since been paid more, you can add it below.</p>}
-      {!info.success.paid && <p className="lede">Reference <b>{info.ref}</b>. You agreed to pay {info.ratePercent}% of the dividends actually paid to you. The registrar pays you directly, so we rely on you to tell us the amount.</p>}
+      {!info.success.paid && <p className="lede">Reference <b>{info.ref}</b>. You agreed to pay {info.ratePercent}% (plus 7.5% VAT) of the dividends actually paid to you. The registrar pays you directly, so we rely on you to tell us the amount.</p>}
       <div className="field" style={{ margin: "12px 0" }}>
         <label htmlFor="received">How much did the registrar pay into your account, in total? (₦)</label>
         <input id="received" className="input" inputMode="decimal" placeholder="e.g. 85,000" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.,]/g, ""))} />
       </div>
       <div className="ledger" style={{ margin: "8px 0 16px" }}>
         <div className="row"><span className="k">You received</span><span className="v">{received > 0 ? nairaExact(received) : "—"}</span></div>
-        <div className="row"><span className="k">Success fee at {info.ratePercent}%</span><span className="v"><b>{fee > 0 ? nairaExact(fee) : "—"}</b></span></div>
+        <div className="row"><span className="k">Success fee at {info.ratePercent}%</span><span className="v">{fee > 0 ? nairaExact(parts.fee) : "—"}</span></div>
+        <div className="row"><span className="k">VAT at 7.5%</span><span className="v">{fee > 0 ? nairaExact(parts.vat) : "—"}</span></div>
+        <div className="row"><span className="k"><b>To pay</b></span><span className="v"><b>{fee > 0 ? nairaExact(fee) : "—"}</b></span></div>
         <div className="row"><span className="k">You keep</span><span className="v">{fee > 0 ? nairaExact(Math.round((received - fee) * 100) / 100) : "—"}</span></div>
       </div>
       <button className="btn gold lg" disabled={busy || !(fee > 0) || !info.payOnline} onClick={pay}>{busy ? <span className="spin" /> : fee > 0 ? `Pay ${nairaExact(fee)}` : "Enter the amount you received"}</button>

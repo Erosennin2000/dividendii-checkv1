@@ -17,7 +17,7 @@ interface Body { action?: string; registrarId?: string; note?: string; message?:
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   try {
-    await requirePilotAdmin(req);
+    const staff = await requirePilotAdmin(req);
     const b = (await req.json().catch(() => ({}))) as Body;
     const store = await getPilotStore();
     const sub = await store.get(id);
@@ -58,16 +58,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       if (!rid) throw new AdminError(400, "Pick one of the registrars on this submission.");
       const status = String(b.status ?? "") as ProgressStatus;
       if (!(status in PROGRESS_LABEL)) throw new AdminError(400, "Pick a status.");
-      const progress = [...(sub.progress ?? []), { registrarId: rid, status, note: clean(b.note, 500), at: new Date().toISOString() }];
+      const progress = [...(sub.progress ?? []), { registrarId: rid, status, note: clean(b.note, 500), at: new Date().toISOString(), by: staff }];
       await store.update(sub.id, { progress });
       return NextResponse.json({ submission: { ...sub, progress } });
     }
-    if (b.action === "removeProgress") {
-      const i = Number(b.index);
-      if (!Number.isInteger(i) || !sub.progress?.[i]) throw new AdminError(400, "That update isn't there.");
-      const progress = sub.progress.filter((_, k) => k !== i);
-      await store.update(sub.id, { progress });
-      return NextResponse.json({ submission: { ...sub, progress } });
+    // Entries in the shareholder's history are never removed (it is the record of what we told them). A mistake is corrected by adding a new entry.
+    if (b.action === "removeProgress") throw new AdminError(400, "Updates can't be removed. Add a new update that corrects it.");
+    if (b.action === "delete") {
+      // Privacy promise: on request we delete the record and its files. Staff must type the reference to confirm.
+      if (String(b.note ?? "").trim().toUpperCase() !== sub.ref.toUpperCase()) throw new AdminError(400, "Type the reference exactly to confirm the delete.");
+      await store.deleteSubmission(sub.id);
+      // When that was their last submission, their account, sign-in details and feedback go too: "delete my data" means all of it.
+      const email = sub.profile.email;
+      const left = (await store.listByEmail(email)).length;
+      if (left === 0) await store.deletePersonData(email);
+      console.warn("[pilot] submission deleted", sub.ref, "by", staff, left === 0 ? "(account and feedback removed)" : "(other submissions remain, account kept)");
+      return NextResponse.json({ deleted: true, accountRemoved: left === 0 });
     }
     if (b.action === "customerMessage") {
       const customerMessage = clean(b.message, 600);

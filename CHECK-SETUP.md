@@ -22,7 +22,11 @@ Easiest and free: create a mailbox in cPanel (Email Accounts), for example `supp
 ## 4. Test, then go live
 - Open https://www.dividendii.com/check, run through with your own details. In test mode every registrar email goes to `PILOT_TEST_EMAIL`. The email code is `123456`.
 - Check /check/admin: sign in, open the submission, look at both PDFs.
-- To go live: set `PILOT_MODE=live`, set `PILOT_SECRET`, redeploy. Do not do this before your lawyer has read the privacy notice and the Letter of Authority wording (`lib/pilot/authority.ts`).
+- To go live: set `PILOT_MODE=live`, set `PILOT_SECRET`, redeploy. Do not do this before your lawyer has read the privacy notice and the Power of Attorney wording (`lib/pilot/authority.ts`).
+- **Before the first live customer (new):**
+  1. In Vercel > Settings > Environment Variables add `CRON_SECRET` (any long random text, 32+ characters). Vercel sends it to the daily check described in section 8b. Without it the daily check refuses to run.
+  2. In /check/admin/settings set **Mode** to live and fill **Copy me on every live registrar email**. That address is on CC, so registrars see it. It is also where staff alerts go (failed payment, paid but forms not sent, failed registrar email).
+  3. Do a real ₦ payment of your own with a live Paystack key, check both registrar emails arrive (use your own address as the registrar address in Settings first), then put the real registrar addresses back.
 - **The test code 123456 can no longer work once you are live.** If `PILOT_MODE` is `live`, or the Paystack key is a live one (`sk_live_...`), or the Settings page is set to live, the app always emails a random code and refuses 123456, even if `PILOT_OTP` was left on `demo`. Check it once after going live: ask for a code with a spare email address and confirm the code arrives by email.
 
 ## 5. Payments (Paystack)
@@ -96,6 +100,14 @@ Step 3 shows "The bank shows this account as ..." from **live Monnify keys if yo
 - **Keep-alive:** Supabase's free plan pauses a project after a week with no activity. `vercel.json` in this app has a weekly job (Mondays) that calls `/check/api/pilot/keepalive`, which reads one record and returns nothing else. After deploying, open Vercel > this project > **Settings > Cron Jobs** and confirm the job is listed. If it isn't, any free pinger that opens `https://www.dividendii.com/check/api/pilot/keepalive` once a week does the same. Real customers also keep it awake.
 - If the project ever shows as paused, press **Restore** in Supabase. Nothing is lost on a pause.
 
+## 8b. The daily check and staff alerts
+
+- `vercel.json` has a second cron job, daily at 06:30 UTC (07:30 Lagos), that calls `/check/api/pilot/daily-check`. It emails you one list of submissions that **paid but whose forms were not sent**, or that are not fully sent. It only reads; it changes nothing. It needs `CRON_SECRET` (see section 4).
+- Instant alerts go to the **Copy me** address (or the reply-to address if that is empty) when: a Paystack payment fails to settle, a start fee was paid but sending failed, a registrar email is refused or fails, or a customer pays twice.
+- A refused address is shown as **Not sent**, never "Sent". The customer sees Resend once and then contacts us.
+- **Deleting a person's data:** open the submission in /check/admin, expand "Delete this person's record", type the reference, press Delete permanently. It removes the record and every PDF and image. If that was the person's last submission, their account (including the password they set) and any feedback they sent are removed too. Copies already emailed to a registrar cannot be recalled. Download a backup first if you may need it.
+- Staff actions on a submission record which staff member did them (progress updates show "by <email>"). Progress updates can no longer be removed; add a correcting update instead.
+
 ## 9. Email limits (Zoho)
 
 Zoho's help page does not promise an unlimited daily amount. It describes a rolling hourly limit of roughly **50 to 500 external emails per hour per mailbox**, which moves with the mailbox's sending reputation, and says bulk or burst sending is not supported. Going over blocks sending for up to an hour.
@@ -108,7 +120,8 @@ If launch day brings a burst: use a separate sending service for the app (Zoho's
 
 - **Start fee:** N150 per company plus 7.5% VAT, paid by Paystack before the forms are sent.
 - **Success fee:** 5% of what the customer received. Staff open the submission and press **Ask for the success fee**. The customer gets an email with a Paystack link (they type the amount they received and pay the 5%) and, if you filled in the bank details under Settings, your account to pay by transfer instead. The registrar pays the customer directly, so this relies on the customer telling us the amount.
-- No VAT is added to the 5% today. Whether VAT applies to it is a question for your accountant.
+- **VAT on the 5%:** 7.5% VAT is added to the 5% (decided by you; confirm with your accountant). A customer who received ₦85,000 pays ₦4,250 plus ₦318.75 VAT, ₦4,568.75 in all.
+- **The start fee is not refundable** once the forms are sent. The pay step and the receipt email say so.
 
 ## Things to know
 - Fees shown: ₦150 per company plus 7.5% VAT, paid at step 4 before the forms are sent; then 5% when they are paid. Defaults live in `lib/pilot/config.ts` and can be changed at /check/admin/settings.

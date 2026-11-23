@@ -11,13 +11,16 @@ export interface MailMessage {
   from: string;
   to: string;
   bcc?: string;
+  /** Visible copy. Used for the staff copy of live registrar emails. */
+  cc?: string;
   replyTo?: string;
   subject: string;
   text: string;
   html: string;
   attachments?: MailAttachment[];
 }
-export interface Mailer { send(m: MailMessage): Promise<{ messageId?: string }> }
+/** `rejected` lists any address the mail server refused. A refused address must never be recorded as sent. */
+export interface Mailer { send(m: MailMessage): Promise<{ messageId?: string; rejected?: string[] }> }
 
 /**
  * The sending-side settings in one shape. With no argument it reads the environment (the defaults);
@@ -63,10 +66,11 @@ export function getMailer(): Mailer {
         auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
       });
       const info = await transport.sendMail({
-        from: m.from, to: m.to, bcc: m.bcc, replyTo: m.replyTo, subject: m.subject, text: m.text, html: m.html,
+        from: m.from, to: m.to, cc: m.cc, bcc: m.bcc, replyTo: m.replyTo, subject: m.subject, text: m.text, html: m.html,
         attachments: (m.attachments ?? []).map((a) => ({ filename: a.filename, content: Buffer.from(a.content), contentType: a.contentType })),
       });
-      return { messageId: info.messageId };
+      const rejected = ((info.rejected ?? []) as unknown[]).map((r) => (typeof r === "string" ? r : String((r as { address?: string }).address ?? r)));
+      return { messageId: info.messageId, rejected };
     },
   };
 }
@@ -78,7 +82,7 @@ function shell(body: string) {
   return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.55;color:#1c2330;max-width:620px">${body}</div>`;
 }
 
-/** The email a registrar receives: the shareholder's details and holdings in the body, mandate form and authority letter attached. */
+/** The email a registrar receives: the shareholder's details and holdings in the body, mandate form and Power of Attorney attached. */
 export function registrarEmail(s: PilotSubmission, registrarId: string, settings: PilotSettings = defaultSettings()): Pick<MailMessage, "subject" | "text" | "html"> {
   const BRAND = settings.brandName;
   const note = settings.registrarNote.trim();
@@ -90,7 +94,7 @@ export function registrarEmail(s: PilotSubmission, registrarId: string, settings
   const kin = [a.nextOfKinName, a.nextOfKinRelationship && `(${a.nextOfKinRelationship})`, a.nextOfKinPhone].filter(Boolean).join(" ");
   const byHand = form?.unlisted ?? [];
 
-  const subject = `E-dividend mandate and letter of authority: ${s.profile.surname.toUpperCase()} ${s.profile.firstName} (${companies.length} ${companies.length === 1 ? "holding" : "holdings"}) [${s.ref}]`;
+  const subject = `E-dividend mandate and Power of Attorney: ${s.profile.surname.toUpperCase()} ${s.profile.firstName} (${companies.length} ${companies.length === 1 ? "holding" : "holdings"}) [${s.ref}]`;
 
   const lines = [
     `Dear ${reg.name},`,
@@ -99,7 +103,7 @@ export function registrarEmail(s: PilotSubmission, registrarId: string, settings
     ``,
     `Attached:`,
     `1. The completed e-dividend mandate form, with passport photograph and signature.`,
-    `2. A letter of authority signed by the shareholder, authorising ${BRAND} to submit the mandate and correspond with you for these holdings only. Payment is to go directly to the shareholder's bank account.`,
+    `2. A Power of Attorney signed by the shareholder, authorising ${BRAND} to submit the mandate and correspond with you for these holdings only. Payment is to go directly to the shareholder's bank account.`,
     ``,
     `Holdings:`,
     ...companies.map((c, i) => `${i + 1}. ${c}`),
@@ -112,6 +116,7 @@ export function registrarEmail(s: PilotSubmission, registrarId: string, settings
     `Next of kin: ${kin}`,
     ``,
     `Current contact: ${s.profile.phone1}, ${s.profile.email}`,
+    `Current address (in full, in case it was shortened on the form): ${[s.profile.address, s.profile.city, s.profile.state, s.profile.country].filter(Boolean).join(", ")}`,
     ``,
     ...(note ? [note, ``] : []),
     `Please reply to this email quoting ${s.ref}, or confirm which further documents you need.`,
@@ -122,13 +127,13 @@ export function registrarEmail(s: PilotSubmission, registrarId: string, settings
     `<p>Dear ${esc(reg.name)},</p>` +
     `<p>${esc(BRAND)} is sending this on behalf of <b>${esc(name.toUpperCase())}</b>, who holds shares in the companies below on your register.</p>` +
     `<p><b>Attached</b></p><ol><li>The completed e-dividend mandate form, with passport photograph and signature.</li>` +
-    `<li>A letter of authority signed by the shareholder, authorising ${esc(BRAND)} to submit the mandate and correspond with you for these holdings only. Payment is to go directly to the shareholder's bank account.</li></ol>` +
+    `<li>A Power of Attorney signed by the shareholder, authorising ${esc(BRAND)} to submit the mandate and correspond with you for these holdings only. Payment is to go directly to the shareholder's bank account.</li></ol>` +
     `<p><b>Holdings</b></p><ol>${companies.map((c) => `<li>${esc(c)}</li>`).join("")}</ol>` +
     ((s.variants ?? []).length ? `<p><b>The name may appear on your register as:</b> ${esc((s.variants ?? []).join("; "))}.</p>` : "") +
     (byHand.length ? `<p><b>Not printed on your form, please note by hand:</b> ${esc(byHand.join("; "))}.</p>` : "") +
     `<p><b>Details when the shares were bought</b>, to help you find the holding:<br>Address: ${esc(a.address)}<br>` +
     (a.phone ? `Phone: ${esc(a.phone)}<br>` : "") + `Next of kin: ${esc(kin)}</p>` +
-    `<p>Current contact: ${esc(s.profile.phone1)}, ${esc(s.profile.email)}</p>` +
+    `<p>Current contact: ${esc(s.profile.phone1)}, ${esc(s.profile.email)}<br>Current address (in full, in case it was shortened on the form): ${esc([s.profile.address, s.profile.city, s.profile.state, s.profile.country].filter(Boolean).join(", "))}</p>` +
     (note ? `<p>${esc(note).replace(/\n/g, "<br>")}</p>` : "") +
     `<p>Please reply to this email quoting <b>${esc(s.ref)}</b>, or tell us which further documents you need.</p><p>${esc(BRAND)}</p>`,
   );
@@ -140,7 +145,7 @@ function paymentLines(s: PilotSubmission, settings: PilotSettings = defaultSetti
   const BRAND = settings.brandName;
   const n = s.holdings.length;
   const each = `${naira(settings.payAheadPerCompany)} plus 7.5% VAT for each of ${n} ${n === 1 ? "company" : "companies"}`;
-  const success = `Success fee: only when a dividend reaches your account, ${settings.debitRatePercent}% of that payment. We will write to you then. If nothing is paid to you, you owe no success fee.`;
+  const success = `Success fee: only when a dividend reaches your account, ${settings.debitRatePercent}% of that payment plus 7.5% VAT. We will write to you then. If nothing is paid to you, you owe no success fee. The start fee is not refunded, even if the registrar finds nothing.`;
   if (s.payment.status === "paid") return [`Start fee paid: ${nairaExact(s.payment.amountDue)} (${each}). Thank you.`, success];
   const bits = [`Start fee due: ${nairaExact(s.payment.amountDue)} (${each}).`];
   if (env.pay.accountNumber) bits.push(`Transfer to ${env.pay.accountName || BRAND}, ${env.pay.bank}, account ${env.pay.accountNumber}. Use ${s.ref} as the reference.`);
@@ -182,33 +187,35 @@ export function successFeeEmail(s: PilotSubmission, link: string | null, note = 
   const subject = `Has your dividend arrived? Your ${rate}% success fee (${s.ref})`;
   const acct = pilotEnv(settings).pay;
   const transfer = acct.accountNumber
-    ? `Prefer a bank transfer? Pay ${rate}% of what you received to ${acct.accountName || BRAND}, ${acct.bank}, account ${acct.accountNumber}. Use ${s.ref} as the reference, and reply to tell us the amount you received.`
+    ? `Prefer a bank transfer? Pay ${rate}% plus 7.5% VAT of what you received to ${acct.accountName || BRAND}, ${acct.bank}, account ${acct.accountNumber}. Use ${s.ref} as the reference, and reply to tell us the amount you received.`
     : "";
   const how = link
-    ? `Tell us how much you received and pay the ${rate}% securely here:`
-    : `Please reply to this email with the amount you received, and we will send you how to pay the ${rate}%.`;
+    ? `Tell us how much you received and pay the ${rate}% plus VAT securely here:`
+    : `Please reply to this email with the amount you received, and we will send you how to pay the ${rate}% plus VAT.`;
   const text = [
     `Hello ${s.profile.firstName},`, ``,
     `We believe a registrar has now paid dividends into your account for the holdings we sent forms for, reference ${s.ref}:`,
     ...companies.map((c) => `  - ${c}`), ``,
-    `When you signed up, you agreed to a success fee of ${rate}% of what is actually paid to you. The registrar pays you directly, so we do not see the amount. We are relying on you to tell us.`, ``,
+    `When you signed up, you agreed to a success fee of ${rate}% (plus 7.5% VAT) of what is actually paid to you. The registrar pays you directly, so we do not see the amount. We are relying on you to tell us.`, ``,
     how, ...(link ? [link] : []), ``,
     ...(transfer ? [transfer, ``] : []),
     ...(extra ? [extra, ``] : []),
     `If you have not been paid yet, reply and tell us, and we will keep chasing the registrar.`, ``,
+    `Our payment link only ever opens the payment gateway's secure page. ${BRAND} staff will never ask for your PIN, OTP or card details by phone, WhatsApp or email.`, ``,
     `Thank you for trusting us with this.`, ``, BRAND,
   ].join("\n");
   const html = shell(
     `<p>Hello ${esc(s.profile.firstName)},</p>` +
     `<p>We believe a registrar has now paid dividends into your account for the holdings we sent forms for, reference <b>${esc(s.ref)}</b>:</p>` +
     `<ul>${companies.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>` +
-    `<p>When you signed up, you agreed to a success fee of <b>${rate}%</b> of what is actually paid to you. The registrar pays you directly, so we do not see the amount. We are relying on you to tell us.</p>` +
+    `<p>When you signed up, you agreed to a success fee of <b>${rate}%</b> (plus 7.5% VAT) of what is actually paid to you. The registrar pays you directly, so we do not see the amount. We are relying on you to tell us.</p>` +
     (link
       ? `<p>${esc(how)}</p><p><a href="${esc(link)}" style="background:#C59F56;color:#17375A;font-weight:bold;padding:10px 18px;border-radius:8px;text-decoration:none;display:inline-block">Tell us the amount and pay ${rate}%</a></p>`
       : `<p>${esc(how)}</p>`) +
     (transfer ? `<p>${esc(transfer)}</p>` : "") +
     (extra ? `<p>${esc(extra).replace(/\n/g, "<br>")}</p>` : "") +
     `<p>If you have not been paid yet, reply and tell us, and we will keep chasing the registrar.</p>` +
+    `<p style="color:#5b6472">Our payment link only ever opens the payment gateway's secure page. ${esc(BRAND)} staff will never ask for your PIN, OTP or card details by phone, WhatsApp or email.</p>` +
     `<p>Thank you for trusting us with this.</p><p>${esc(BRAND)}</p>`,
   );
   return { subject, text, html };
@@ -223,10 +230,12 @@ export function confirmationEmail(s: PilotSubmission, settings: PilotSettings = 
   const text = [
     `Hello ${s.profile.firstName},`,
     ``,
-    `We've sent your e-dividend mandate form and a signed letter of authority to the registrars below. Your reference is ${s.ref}.`,
+    `We've sent your e-dividend mandate form and a signed Power of Attorney to the registrars below. Your reference is ${s.ref}.`,
     ``,
     ...byReg.flatMap(({ r, items }) => [r, ...items.map((c) => `  - ${c}`), ``]),
     `What happens next: the registrar checks its records and replies to us. We chase them and tell you when anything changes. Any dividend is paid by the registrar straight into your account ending ${s.profile.accountNumber.slice(-4)}.`,
+    ``,
+    `You will hear from us within 24 hours with a first update. In the first week, expect the registrars to reply to us. We pass on what they say, and if one needs anything more from you we tell you exactly what.`,
     ``,
     ...pay,
     ``,
@@ -239,9 +248,10 @@ export function confirmationEmail(s: PilotSubmission, settings: PilotSettings = 
   ].join("\n");
   const html = shell(
     `<p>Hello ${esc(s.profile.firstName)},</p>` +
-    `<p>We've sent your e-dividend mandate form and a signed letter of authority to the registrars below. Your reference is <b>${esc(s.ref)}</b>.</p>` +
+    `<p>We've sent your e-dividend mandate form and a signed Power of Attorney to the registrars below. Your reference is <b>${esc(s.ref)}</b>.</p>` +
     byReg.map(({ r, items }) => `<p><b>${esc(r)}</b></p><ul>${items.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>`).join("") +
     `<p><b>What happens next:</b> the registrar checks its records and replies to us. We chase them and tell you when anything changes. Any dividend is paid by the registrar straight into your account ending ${esc(s.profile.accountNumber.slice(-4))}.</p>` +
+    `<p><b>You will hear from us within 24 hours</b> with a first update. In the first week, expect the registrars to reply to us. We pass on what they say, and if one needs anything more from you we tell you exactly what.</p>` +
     pay.map((l) => `<p>${esc(l)}</p>`).join("") +
     `<p><b>Follow your progress</b> in <a href="${esc(accountUrl())}">your account</a>. The first time, choose "Set or reset my password" and use this email address.</p>` +
     `<p>Questions? Reply to this email and quote ${esc(s.ref)}.</p><p>${esc(BRAND)}</p>`,
@@ -264,14 +274,14 @@ export function chaseEmail(s: PilotSubmission, registrarId: string, extra = "", 
   const note = extra.trim();
   const text = [
     `Dear ${reg.name},`, ``,
-    `We wrote on ${day} on behalf of ${name}, reference ${s.ref}, enclosing the e-dividend mandate form and a signed letter of authority. We have not yet had a reply, so we are following up. The documents are attached again.`,
+    `We wrote on ${day} on behalf of ${name}, reference ${s.ref}, enclosing the e-dividend mandate form and a signed Power of Attorney. We have not yet had a reply, so we are following up. The documents are attached again.`,
     ``, `Holdings (${companies.length}):`, ...companies.map((c, i) => `${i + 1}. ${c}`),
     ...(note ? [``, note] : []),
     ``, `Please confirm that the mandate has been received and updated, or tell us what else you need.`, ``, BRAND,
   ].join("\n");
   const html = shell(
     `<p>Dear ${esc(reg.name)},</p>` +
-    `<p>We wrote on ${esc(day)} on behalf of <b>${esc(name)}</b>, reference <b>${esc(s.ref)}</b>, enclosing the e-dividend mandate form and a signed letter of authority. We have not yet had a reply, so we are following up. The documents are attached again.</p>` +
+    `<p>We wrote on ${esc(day)} on behalf of <b>${esc(name)}</b>, reference <b>${esc(s.ref)}</b>, enclosing the e-dividend mandate form and a signed Power of Attorney. We have not yet had a reply, so we are following up. The documents are attached again.</p>` +
     `<p><b>Holdings (${companies.length})</b></p><ol>${companies.map((c) => `<li>${esc(c)}</li>`).join("")}</ol>` +
     (note ? `<p>${esc(note)}</p>` : "") +
     `<p>Please confirm that the mandate has been received and updated, or tell us what else you need.</p><p>${esc(BRAND)}</p>`,

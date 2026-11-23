@@ -93,9 +93,11 @@ export function checkPassword(pw: string, stored: string | null | undefined): bo
   const got = scryptSync(pw.normalize("NFKC"), Buffer.from(salt, "base64url"), want.length, { N: Number(n) || 16384, r: 8, p: 1 });
   return timingSafeEqual(want, got);
 }
-export function passwordProblem(pw: unknown): string | null {
+export function passwordProblem(pw: unknown, email?: string): string | null {
   if (typeof pw !== "string" || pw.length < MIN_PASSWORD) return `Use at least ${MIN_PASSWORD} characters.`;
   if (pw.length > 200) return "That password is too long.";
+  if (!pw.trim()) return "A password can't be only spaces.";
+  if (email && pw.trim().toLowerCase() === email.trim().toLowerCase()) return "Your password can't be the same as your email address.";
   if (/^\d+$/.test(pw)) return "Use letters as well as numbers.";
   return null;
 }
@@ -172,7 +174,8 @@ export async function setPassword(
     if (!lead) throw new AccountError("Sign in again.", 401);
     if (lead.passwordHash) throw new AccountError("You already have a password. To change it, use “Set or reset my password” with a code.");
   }
-  if (problem) throw new AccountError(problem);
+  const emailProblem = problem ?? passwordProblem(input.password, lead.email);
+  if (emailProblem) throw new AccountError(emailProblem);
   const updated: PilotLead = {
     ...lead, passwordHash: hashPassword(input.password), passwordSetAt: now.toISOString(),
     sessionVersion: (lead.sessionVersion ?? 0) + 1, lastSignInAt: now.toISOString(),

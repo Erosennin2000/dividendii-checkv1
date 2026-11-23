@@ -49,7 +49,7 @@ const lagosDate = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", m
 export async function buildAuthorityLetter(a: AuthorityInput): Promise<Uint8Array> {
   const brand = pdfSafe(a.brand || PILOT_BRAND);
   const doc = await PDFDocument.create();
-  doc.setTitle(`Letter of authority - ${a.ref}`);
+  doc.setTitle(`Power of Attorney - ${a.ref}`);
   doc.setCreator(brand);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -76,18 +76,18 @@ export async function buildAuthorityLetter(a: AuthorityInput): Promise<Uint8Arra
 
   page.drawText(brand.toUpperCase(), { x: M, y, size: 11, font: bold, color: NAVY });
   y -= 24;
-  text("LETTER OF AUTHORITY", { font: bold, size: 16, gap: 0 });
+  text("POWER OF ATTORNEY", { font: bold, size: 16, gap: 0 });
   text("My signed permission for Dividendii to submit my e-dividend mandate", { size: 11, color: MUTED, gap: 14 });
 
   text(`Date: ${lagosDate(a.now ?? new Date())}  |  Reference: ${a.ref}`, { gap: 8 });
   text(`To: The Registrar, ${a.registrar}`, { gap: 8 });
 
-  text(`Re: Authority for ${brand} to submit the e-dividend mandate of ${full}`, { font: bold, gap: 10 });
+  text(`Re: Power of Attorney for ${brand} to submit the e-dividend mandate of ${full}`, { font: bold, gap: 10 });
 
   text(`I, ${full}, appoint ${brand} ("the Attorney") to act for me for the limited purposes below.`, { gap: 8 });
 
   heading(`1. Holdings covered (${a.companies.length} ${a.companies.length === 1 ? "company" : "companies"})`);
-  text(`This authority covers my holdings in the following ${a.companies.length === 1 ? "company" : "companies"} on your register, and nothing else:`, { gap: 2 });
+  text(`This Power of Attorney covers my holdings in the following ${a.companies.length === 1 ? "company" : "companies"} on your register, and nothing else:`, { gap: 2 });
   a.companies.forEach((c, i) => text(`${i + 1}. ${c}`, { indent: 12, gap: 0 }));
   y -= 6;
 
@@ -119,7 +119,7 @@ export async function buildAuthorityLetter(a: AuthorityInput): Promise<Uint8Arra
   y -= 6;
 
   heading("6. Duration");
-  text("This authority ends when each listed claim is paid or closed, or after 12 months, whichever comes first. I can withdraw it at any time by writing to you and to the Attorney.");
+  text("This Power of Attorney ends when each listed claim is paid or closed, or after 12 months, whichever comes first. I can withdraw it at any time by writing to you and to the Attorney.");
 
   room(130);
   y -= 8;

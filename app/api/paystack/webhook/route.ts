@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { alertStaff } from "@/lib/pilot/alerts";
 import { getMailer } from "@/lib/pilot/mail";
+import { effectiveSettings } from "@/lib/pilot/settings";
 import { settlePayment } from "@/lib/pilot/pay";
 import { validWebhookSignature } from "@/lib/pilot/paystack";
 import { getPilotStore } from "@/lib/pilot/store";
@@ -26,6 +28,11 @@ export async function POST(req: Request) {
   } catch (e) {
     // A payment we can't match (for example one made outside this app) is logged, not retried forever.
     console.error("[pilot] webhook could not settle", e instanceof Error ? e.message : e);
+    try {
+      const store = await getPilotStore();
+      const ref = (() => { try { return String((JSON.parse(raw) as { data?: { reference?: string } }).data?.reference ?? ""); } catch { return ""; } })();
+      await alertStaff(getMailer(), effectiveSettings(await store.getSettings()), "A payment notice could not be processed", [`Paystack told us about a payment (reference ${ref || "unknown"}) but we could not match or settle it: ${e instanceof Error ? e.message : "unknown error"}.`, "Check it in the Paystack dashboard. If a customer was charged and the forms did not go, send them from the staff page."]);
+    } catch { /* the alert is best effort */ }
   }
   return NextResponse.json({ received: true });
 }

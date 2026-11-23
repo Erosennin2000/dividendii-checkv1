@@ -13,6 +13,9 @@ export class PilotValidationError extends Error {
 
 const PROFILE_KEYS: (keyof FormProfile)[] = ["surname", "firstName", "otherNames", "bvn", "bankName", "accountNumber", "address", "city", "state", "country", "previousAddress", "chn", "phone1", "phone2", "email"];
 
+/** Most other spellings of a name we accept. The form stops at this number and says so. */
+export const MAX_VARIANTS = 20;
+
 export type PilotStep = 1 | 2 | 3 | 4;
 
 /** What is still missing or wrong, grouped by the four steps of the form. Plain language, so the form can show it as is. */
@@ -70,7 +73,7 @@ export function parsePilotInput(raw: unknown, opts: { isOpen?: (registrarId: str
   // The registrar forms have one "previous address" box. The address at purchase is what the register holds.
   profile.previousAddress = atPurchase.address;
 
-  const variants = (Array.isArray(b.variants) ? b.variants : []).map((v: unknown) => clean(v, 120)).filter(Boolean).slice(0, 10);
+  const variants = (Array.isArray(b.variants) ? b.variants : []).map((v: unknown) => clean(v, 120)).filter(Boolean).slice(0, MAX_VARIANTS);
   const holdings: PilotInput["holdings"] = [];
   const problems: string[] = [];
   for (const h of Array.isArray(b.holdings) ? b.holdings.slice(0, MAX_COMPANIES + 1) : []) {

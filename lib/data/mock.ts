@@ -48,7 +48,7 @@ function session(): Session {
 
 function requireOps(): Session {
   const s = session();
-  if (s.role !== "ops") throw new Error("Only Vendii staff can do that.");
+  if (s.role !== "ops") throw new Error("Only Dividendii staff can do that.");
   return s;
 }
 

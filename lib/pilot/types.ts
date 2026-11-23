@@ -75,6 +75,8 @@ export interface PilotSubmission {
     reference?: string | null; channel?: string | null; gatewayId?: number | null;
     /** "paystack": confirmed by Paystack. "manual": staff marked it paid. */
     via?: "paystack" | "manual" | null;
+    /** A second payment for a start fee that was already paid. Staff must refund or keep it on purpose. */
+    duplicates?: { reference: string; amount: number; paidAt: string }[];
   };
   /** The success fee: asked for by email once we believe the registrar has paid. Trust-based. */
   successFee?: SuccessFee;
@@ -83,6 +85,8 @@ export interface PilotSubmission {
   /** A line from staff that the shareholder sees at the top of this submission in their account. */
   customerMessage?: string;
   consentAt: string;
+  /** What the customer saw and agreed to when they ticked consent: the legal text versions, where from, and on what device. */
+  consent?: { termsVersion: string; privacyVersion: string; ip: string; device: string };
   files: StoredFile[];
   emails: EmailRecord[];
   sendStatus: SendStatus;
@@ -105,6 +109,8 @@ export interface ProgressEntry {
   /** Shown to the shareholder. */
   note: string;
   at: string;
+  /** Which staff member added it. Staff only, never shown to the shareholder. */
+  by?: string;
 }
 
 /** Feedback from an account holder. Staff read it on the admin page. */

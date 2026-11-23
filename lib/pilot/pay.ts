@@ -1,8 +1,10 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
+import { successFeeParts } from "@/lib/domain/fees";
 import { payLinkEmail, pilotEnv, successFeeEmail } from "./mail";
 import { initializePayment, paystackMode, paystackOn, verifyPayment, type Verified } from "./paystack";
 import type { PilotSettings } from "./settingsShared";
+import { alertStaff } from "./alerts";
 import { dispatchPilot, settingsFor, type Deps } from "./submit";
 import { signLink } from "./token";
 import type { EmailRecord, PilotSubmission, SuccessFee, SuccessFeePayment } from "./types";
@@ -12,12 +14,13 @@ export const VAT = 0.075;
 export const MIN_CHARGE = 50;
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+const nairaExactLocal = (n: number) => "₦" + n.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const toKobo = (naira: number) => Math.round(naira * 100);
 
 /** The start fee: per company, plus VAT. Naira, to the kobo. */
 export const startFee = (companies: number, perCompany: number) => round2(companies * perCompany * (1 + VAT));
-/** The success fee on an amount the shareholder says they received. */
-export const successFeeOn = (received: number, ratePercent: number) => round2(received * ratePercent / 100);
+/** The success fee on an amount the shareholder says they received: the percentage plus 7.5% VAT on it. */
+export const successFeeOn = (received: number, ratePercent: number) => successFeeParts(received, ratePercent).total;
 
 export class PayError extends Error { constructor(message: string, readonly status = 400) { super(message); } }
 
@@ -48,6 +51,16 @@ export async function beginStartPayment(sub: PilotSubmission, base: string, deps
   if (sub.payment.status === "paid") return { paid: true };
   if (!paystackOn()) throw new PayError("Online payment is not set up yet. We will send you how to pay.", 503);
   if (!(sub.payment.amountDue >= MIN_CHARGE)) throw new PayError("There is nothing to pay on this submission.");
+  // If an earlier attempt was in fact paid (a second tab, a slow return page), count that one instead of asking for the money again.
+  if (sub.payment.reference) {
+    try {
+      const prev = await verifyPayment(sub.payment.reference);
+      if (prev.status === "success") {
+        const done = await settlePayment(sub.payment.reference, deps, prev);
+        if (done.ok) return { paid: true };
+      }
+    } catch { /* the old reference was never used or Paystack could not say: start a fresh payment below */ }
+  }
   const reference = newReference(sub, "start");
   const init = await initializePayment({
     email: sub.profile.email, amountKobo: toKobo(sub.payment.amountDue), reference,
@@ -119,9 +132,23 @@ export async function settlePayment(reference: string, deps: Deps, verified?: Ve
       const payment = { ...sub.payment, status: "paid" as const, paidAt: at, reference: v.reference, channel: v.channel, gatewayId: v.id, via: "paystack" as const };
       await deps.store.update(sub.id, { payment });
       sub = { ...sub, payment };
+    } else if (sub.payment.reference !== v.reference && !sub.payment.duplicates?.some((d) => d.reference === v.reference)) {
+      // The start fee was already paid under another reference: this is a second charge for the same thing. Keep it on the record and tell staff.
+      const duplicates = [...(sub.payment.duplicates ?? []), { reference: v.reference, amount: v.amountKobo / 100, paidAt: at }];
+      const payment = { ...sub.payment, duplicates };
+      await deps.store.update(sub.id, { payment });
+      sub = { ...sub, payment };
+      await alertStaff(deps.mailer, await settingsFor(deps), `Double payment: ${sub.ref}`, [`The start fee for ${sub.ref} (${sub.profile.firstName} ${sub.profile.surname}) was paid twice.`, `Second payment: ${nairaExactLocal(v.amountKobo / 100)}, Paystack reference ${v.reference}.`, "Refund it in the Paystack dashboard, then note it on the submission."]);
     }
     // Paid: now the forms go to the registrars. dispatchPilot only sends a queued submission, so a second call does nothing.
-    if (sub.sendStatus === "queued") sub = await dispatchPilot(sub.id, deps);
+    if (sub.sendStatus === "queued") {
+      try { sub = await dispatchPilot(sub.id, deps); }
+      catch (e) {
+        // The money is in. Do not lose that: record it, tell staff, and let them (or the daily check) send the forms.
+        console.error("[pilot] paid but sending failed", sub.ref, e);
+        await alertStaff(deps.mailer, await settingsFor(deps), `Paid but forms not sent: ${sub.ref}`, [`${sub.ref} (${sub.profile.firstName} ${sub.profile.surname}) has paid the start fee, but sending the forms failed.`, "Open the staff page and press Send."]);
+      }
+    }
     return out(true, "Payment received.");
   }
   const sf = sub.successFee;
@@ -149,6 +176,7 @@ async function sendToShareholder(sub: PilotSubmission, kind: EmailRecord["kind"]
   const base: EmailRecord = { kind, to: sub.profile.email, status: "failed", at };
   try {
     const res = await deps.mailer.send({ from: env.from, to: sub.profile.email, replyTo: env.replyTo || undefined, ...body });
+    if ((res.rejected ?? []).length) throw new Error("The mail server refused: " + res.rejected!.join(", "));
     return { ...base, status: "sent", messageId: res.messageId };
   } catch (e) {
     console.error("[pilot] shareholder email failed", sub.ref, kind, e);

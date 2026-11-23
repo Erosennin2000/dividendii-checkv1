@@ -15,7 +15,7 @@ export function AppBar() {
 
   return (
     <header className="appbar">
-      <Link href="/" aria-label="Vendii home"><Logo height={24} /></Link>
+      <Link href="/" aria-label="Dividendii home"><Logo height={24} /></Link>
       <nav>
         {links.map((l) => (
           <Link key={l.href} href={l.href} className="navlink" data-on={l.href === "/ops" ? pathname === "/ops" : pathname.startsWith(l.href)}>{l.label}</Link>

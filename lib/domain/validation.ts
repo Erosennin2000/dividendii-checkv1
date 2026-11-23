@@ -3,7 +3,8 @@ import type { FlowType } from "./types";
 export const isElevenDigits = (s: string) => /^\d{11}$/.test((s ?? "").trim());
 /** NUBAN account numbers are 10 digits. The check digit needs the bank code, so the provider verifies that. */
 export const isNuban = (s: string) => /^\d{10}$/.test((s ?? "").trim());
-export const isEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test((s ?? "").trim());
+/** One address only: no spaces, commas, semicolons, quotes or angle brackets, which mail systems read as several addresses or a name. */
+export const isEmail = (s: string) => /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]{2,}$/.test((s ?? "").trim());
 
 export type FieldErrors = Partial<Record<string, string>>;
 

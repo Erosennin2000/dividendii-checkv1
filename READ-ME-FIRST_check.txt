@@ -1,0 +1,25 @@
+DIVIDENDII CHECK APP: 23 November 2026 changes (v1.0)
+
+This zip holds ONLY the files that changed. Do not delete anything in your repo.
+Copy each file over the file with the same name and path in your dividendii-checkv1 repo.
+New files (they do not exist in your repo yet):
+  - app/api/pilot/daily-check/route.ts
+  - lib/pilot/alerts.ts
+
+STEPS
+1. Unzip this folder. Copy everything in it into your repo, choosing "Replace" when asked.
+2. In Vercel, project settings, Environment Variables: add CRON_SECRET (any long random text, 32+ characters). Without it the daily check will not run.
+3. Commit and push. Vercel builds by itself.
+4. No database change is needed (you do NOT re-run supabase/pilot.sql).
+5. Open /check/admin/settings and fill "Copy me on every live registrar email". Registrars can SEE this address (it is a visible CC).
+6. Test with a TEST Paystack key first (mode stays test): pay once, check the forms arrive in the test inbox with the CC.
+7. Only then go live (see CHECK-SETUP.md section 4, "Before the first live customer").
+
+WHAT CHANGED (short)
+ - One fee story everywhere; total shown on step 2 and at pay; 7.5% VAT now also added to the 5% success fee.
+ - No double payments: pressing Pay again checks the earlier payment first; a second paid payment is recorded and you are emailed.
+ - Honest "Sent": a registrar address the mail server refuses now shows Not sent. A daily 07:30 email lists paid-but-not-sent forms.
+ - Typed answers survive Back/Forward/reload/return from payment (this tab only; photo, signature and ticks are not kept).
+ - Saves proof of consent (terms and privacy version, date, IP, device) with each submission.
+ - Staff page: Sign out; refuses price 0; staff name on updates; updates cannot be removed; newest 1,000 of N; double-payment warning; Delete button (removes the record, its files, and if it was their last one, their account and feedback).
+ - Power of Attorney wording; Vendii renamed Dividendii; BVN reason; plain-word help; input fixes; passwords of spaces or equal to the email are refused.

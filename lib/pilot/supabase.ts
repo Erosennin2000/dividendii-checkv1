@@ -47,12 +47,35 @@ export async function selectRows<T>(table: string, query: string): Promise<T[]> 
   return (await res.json()) as T[];
 }
 
+/** How many rows a table holds (exact count, no rows transferred). */
+export async function countRows(table: string): Promise<number> {
+  const s = needSupabase();
+  const res = await fetch(`${s.url}/rest/v1/${table}?select=id`, { headers: headers(s, { prefer: "count=exact", range: "0-0" }), cache: "no-store" });
+  if (!res.ok) await fail(res, `count of ${table}`);
+  const total = Number((res.headers.get("content-range") ?? "").split("/")[1]);
+  return Number.isFinite(total) ? total : 0;
+}
+
 export async function uploadObject(path: string, bytes: Uint8Array, contentType: string): Promise<void> {
   const s = needSupabase();
   const res = await fetch(`${s.url}/storage/v1/object/${seg(path)}`, {
     method: "POST", headers: headers(s, { "content-type": contentType, "x-upsert": "true" }), body: Buffer.from(bytes),
   });
   if (!res.ok) await fail(res, "file upload");
+}
+
+/** Remove a stored file. A file that is already gone counts as removed. */
+export async function deleteObject(path: string): Promise<void> {
+  const s = needSupabase();
+  const res = await fetch(`${s.url}/storage/v1/object/${seg(path)}`, { method: "DELETE", headers: headers(s) });
+  if (!res.ok && res.status !== 404 && res.status !== 400) await fail(res, "file delete");
+}
+
+/** Remove the row with this id. */
+export async function deleteRow(table: string, id: string): Promise<void> {
+  const s = needSupabase();
+  const res = await fetch(`${s.url}/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`, { method: "DELETE", headers: headers(s, { prefer: "return=minimal" }) });
+  if (!res.ok) await fail(res, `delete from ${table}`);
 }
 
 export async function downloadObject(path: string): Promise<Uint8Array> {

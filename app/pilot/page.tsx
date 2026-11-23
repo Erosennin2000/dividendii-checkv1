@@ -11,16 +11,19 @@ import { FileDrop } from "@/components/FileDrop";
 import { SignaturePad } from "@/components/SignaturePad";
 import { PhotoIcon, PlusIcon, XIcon } from "@/components/icons";
 import { BANK_GROUPS, OTHER_BANK, ALL_BANKS } from "@/lib/pilot/banks";
-import { naira } from "@/lib/domain/fees";
+import { naira, successFeeParts } from "@/lib/domain/fees";
 import { emptyProfile } from "@/lib/forms/registry";
 import type { FormProfile } from "@/lib/forms/types";
 import { resizeImage } from "@/lib/image";
 import { DEBIT_RATE, PAY_AHEAD_PER_COMPANY, PILOT_COMPANIES, PILOT_REGISTRARS, companiesFor, type PilotCompany, type PilotRegistrarId } from "@/lib/pilot/config";
 import type { PaymentMethod, PilotInput } from "@/lib/pilot/types";
-import { pilotProblemsByStep, type PilotStep } from "@/lib/pilot/validate";
+import { MAX_VARIANTS, pilotProblemsByStep, type PilotStep } from "@/lib/pilot/validate";
+import { SITE } from "@/lib/site";
 import { errorMessage } from "@/lib/util";
 
 type Held = { registrarId: PilotRegistrarId; company: string };
+const DRAFT_KEY = "dividendii-check-draft";
+interface Draft { v: 1; step: PilotStep; profile: FormProfile; variants: string[]; held: Held[]; at: typeof emptyAt; regName: string; lead: { id: string; demo: boolean } | null; token: string | null; bankOther: boolean }
 interface Result {
   id: string; ref: string; sendStatus: "queued" | "sending" | "sent" | "partial" | "failed"; mode: "test" | "live";
   registrars: string[]; companyCount: number; byHand: string[]; payment: { method: PaymentMethod; amountDue: number };
@@ -31,8 +34,13 @@ interface Result {
 const STEPS = ["You", "Your companies", "Your details", "Sign and send"] as const;
 const emptyAt = { address: "", phone: "", nextOfKinName: "", nextOfKinRelationship: "", nextOfKinPhone: "" };
 
-async function post<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(withBase(url), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+async function post<T>(url: string, body: unknown, timeoutMs?: number): Promise<T> {
+  // A slow service must never trap the customer: with a time limit, we give up and the caller carries on.
+  const ctl = timeoutMs ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), timeoutMs) : null;
+  let res: Response;
+  try { res = await fetch(withBase(url), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: ctl?.signal }); }
+  finally { if (timer) clearTimeout(timer); }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error ?? `That didn't work (${res.status}).`);
   return data as T;
@@ -74,6 +82,33 @@ export default function PilotPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
 
+  // Typed answers survive Back, Forward, a reload and a return from the payment page. They live in this tab only (sessionStorage), and never include the photo, signature or the ticks for consent. The draft is wiped as soon as the forms are saved.
+  const [ready, setReady] = useState(false);
+  const [bankOther, setBankOther] = useState(false);
+  useEffect(() => {
+    try {
+      const d = JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? "null") as Draft | null;
+      if (d && d.v === 1) {
+        setProfile({ ...emptyProfile(), ...d.profile }); setVariants(d.variants ?? []); setHeld(d.held ?? []); setAt({ ...emptyAt, ...d.at });
+        setRegName(d.regName ?? ""); setLead(d.lead ?? null); setToken(d.token ?? null); setBankOther(!!d.bankOther);
+        const s = d.token && d.lead ? d.step : 1; // past step 1 only if the email was confirmed
+        setStep(s);
+        history.replaceState({ dvdStep: s }, "");
+      } else history.replaceState({ dvdStep: 1 }, "");
+    } catch { /* storage blocked: the form simply starts empty */ }
+    setReady(true);
+    const onPop = (e: PopStateEvent) => { const s = (e.state as { dvdStep?: PilotStep } | null)?.dvdStep; setStep(s ?? 1); setError(null); };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  useEffect(() => {
+    if (!ready) return;
+    try {
+      const d: Draft = { v: 1, step, profile, variants, held, at, regName, lead, token, bankOther };
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify(d));
+    } catch { /* storage full or blocked */ }
+  }, [ready, step, profile, variants, held, at, regName, lead, token, bankOther]);
+
   const regId = cfg.registrars.find((r) => r.name === regName)?.id ?? "";
   const options = useMemo(
     () => companiesFor(regId).map((c) => c.company).filter((c) => !held.some((h) => h.registrarId === regId && h.company === c)),
@@ -94,11 +129,13 @@ export default function PilotPage() {
   const set = (k: keyof FormProfile) => (v: string) => setProfile((p) => ({ ...p, [k]: v }));
   const digits = (k: keyof FormProfile, n: number) => (v: string) => set(k)(v.replace(/\D/g, "").slice(0, n));
   const setA = (k: keyof typeof emptyAt) => (v: string) => setAt((a) => ({ ...a, [k]: v }));
-  const go = (s: PilotStep) => { setStep(s); setError(null); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const go = (s: PilotStep) => { setStep(s); setError(null); try { history.pushState({ dvdStep: s }, ""); } catch { /* ignore */ } window.scrollTo({ top: 0, behavior: "smooth" }); };
 
   function addVariant() {
     const v = pending.trim();
+    if (v && variants.length >= MAX_VARIANTS) { setError(`You can add up to ${MAX_VARIANTS} other spellings. That is the most we can pass on to a registrar.`); return; }
     if (v && !variants.some((x) => x.toLowerCase() === v.toLowerCase())) setVariants([...variants, v]);
+    setError(null);
     setPending("");
   }
   function addCompanies(list: string[]) {
@@ -106,7 +143,6 @@ export default function PilotPage() {
     setHeld((h) => [...h, ...list.filter((c) => !h.some((x) => x.registrarId === regId && x.company === c)).map((company) => ({ registrarId: regId as PilotRegistrarId, company }))]);
   }
   const bankListed = ALL_BANKS.includes(profile.bankName);
-  const [bankOther, setBankOther] = useState(false);
 
   /** Step 1: save what they've told us, then ask for the code. */
   async function sendCode() {
@@ -137,12 +173,14 @@ export default function PilotPage() {
           const p = await post<{ url?: string; paid?: boolean }>("/api/pilot/pay", { id: r.id, token });
           if (p.url) { window.location.assign(p.url); return; } // keep the spinner while the browser leaves
         } catch {
+          try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
           setResult({ ...r, payLater: true });
           window.scrollTo({ top: 0, behavior: "smooth" });
           setBusy(false);
           return;
         }
       }
+      try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
       setResult(r); // the reference shows at once; the emails go out behind it
       window.scrollTo({ top: 0, behavior: "smooth" });
       if (r.sendStatus === "queued") {
@@ -162,7 +200,7 @@ export default function PilotPage() {
     const key = bank + "|" + acct;
     const t = setTimeout(async () => {
       try {
-        const r = await post<{ status: "found" | "not_found" | "unconfirmed" | "unavailable"; name: string | null }>("/api/pilot/lookup", { token, bank, accountNumber: acct });
+        const r = await post<{ status: "found" | "not_found" | "unconfirmed" | "unavailable"; name: string | null }>("/api/pilot/lookup", { token, bank, accountNumber: acct }, 8000);
         if (live) setAcctCheck({ status: r.status, name: r.name, key });
       } catch { if (live) setAcctCheck({ status: "unavailable", name: null, key }); }
     }, 500);
@@ -242,7 +280,7 @@ export default function PilotPage() {
         <section className="card">
           <h1>Check your email</h1>
           <StepNote k="code" />
-          <p className="lede">We sent a 6-digit code to <b>{profile.email}</b>. Enter it to continue.</p>
+          <p className="lede">We sent a 6-digit code to <b>{profile.email}</b>. It can take up to a minute. If you do not see it, check your spam or junk folder. Then enter it here to continue.</p>
           <div className="field">
             <LabelWithWhy htmlFor="code" k="code">Code</LabelWithWhy>
             <input id="code" className="input code-input" inputMode="numeric" autoComplete="one-time-code" value={code}
@@ -286,6 +324,8 @@ export default function PilotPage() {
               ))}
             </div>
           )}
+          {held.length > 0 && <p className="tiny" style={{ marginTop: 16 }}><b>Start fee so far:</b> {held.length} {held.length === 1 ? "company" : "companies"} × {naira(perCompany)} + 7.5% VAT = <b>{nairaExact(total)}</b>, paid at the last step. Then {rate}% plus VAT, only when a dividend reaches your account.</p>}
+          <p className="tiny" style={{ marginTop: 12 }}>Not sure of your companies? <a href={`${SITE.whatsapp}?text=${encodeURIComponent("Hello Dividendii, I am not sure which companies I hold shares in.")}`} target="_blank" rel="noopener noreferrer">WhatsApp us</a> and we will help you find them.</p>
           <p className="tiny" style={{ marginTop: 16 }}>Not covered: companies whose registrar isn&apos;t in the list, and FBN Holdings (First Registrars&apos; form doesn&apos;t list it).</p>
           <Nav back={() => go(1)} next={() => go(3)} problems={problems[2]} />
         </section>
@@ -340,10 +380,10 @@ export default function PilotPage() {
 
           <h2 style={{ marginTop: 28 }}>When you bought the shares <Why k="atPurchase" /></h2>
           <p className="tiny">The register holds what you gave back then. These help the registrar find your holding.</p>
-          <TextField why="addressThen" label="Your home address at that time" value={at.address} onChange={setA("address")} placeholder="House number, street, area and city" />
+          <TextField why="addressThen" label="Your home address at that time" value={at.address} onChange={setA("address")} placeholder="House number, street, area and city" hint="Not sure? Give your best guess, or write: I do not remember." />
           <TextField why="phoneThen" label="Your phone number at that time" value={at.phone} onChange={setA("phone")} type="tel" inputMode="tel" placeholder="Optional, if you remember it" />
           <div className="field-row three">
-            <TextField why="kin" label="Next of kin at that time" value={at.nextOfKinName} onChange={setA("nextOfKinName")} placeholder="Full name" />
+            <TextField why="kin" label="Next of kin at that time" value={at.nextOfKinName} onChange={setA("nextOfKinName")} placeholder="Full name" hint="The person you named on your share form. Not sure? Give your best guess, or write: I do not remember." />
             <TextField label="Relationship" value={at.nextOfKinRelationship} onChange={setA("nextOfKinRelationship")} placeholder="e.g. Spouse, mother" />
             <TextField label="Their phone" value={at.nextOfKinPhone} onChange={setA("nextOfKinPhone")} type="tel" inputMode="tel" placeholder="Optional" />
           </div>
@@ -357,7 +397,7 @@ export default function PilotPage() {
           <section className="card">
             <h1>Sign and send</h1>
             <StepNote k={4} />
-            <p className="lede">Add your photo and signature. They go on your mandate form and on your letter of authority.</p>
+            <p className="lede">Add your photo and signature. They go on your mandate form and on your Power of Attorney.</p>
             <FileDrop why="photo" label="Passport photograph" accept="image/*" icon={<PhotoIcon />}
               hint="A clear, recent photo on a plain background. It goes in the passport box on the form."
               filledLabel={photo ? "Photo added. Tap to replace" : null} preview={photo}
@@ -376,17 +416,17 @@ export default function PilotPage() {
               <div className="row"><span className="k">Start fee: {naira(perCompany)} × {held.length} {held.length === 1 ? "company" : "companies"}</span><span className="v">{nairaExact(feeBeforeVat)}</span></div>
               <div className="row"><span className="k">VAT at 7.5%</span><span className="v">{nairaExact(vat)}</span></div>
               <div className="row"><span className="k"><b>To pay now</b></span><span className="v"><b>{nairaExact(total)}</b></span></div>
-              <div className="row"><span className="k">Later, only when a dividend reaches your account</span><span className="v">{rate}% of that payment</span></div>
+              <div className="row"><span className="k">Later, only when a dividend reaches your account</span><span className="v">{rate}% of that payment, plus 7.5% VAT</span></div>
             </div>
             <p className="tiny">
               {cfg.payOnline
                 ? <>You pay on the payment gateway&apos;s secure page by card, bank transfer or USSD. We send your forms as soon as the payment is confirmed. </>
                 : <>We will email you how to pay the start fee. </>}
-              The start fee covers our work and is not a promise that money will be found. The {rate}% is never taken before you are paid: we write to you and you pay it then.
+              The start fee covers our work and is not a promise that money will be found. <b>The start fee is not refunded, even if the registrar finds nothing or only a small amount.</b> The {rate}% (plus VAT) is never taken before you are paid: we write to you and you pay it then. For example, on {nairaExact(100000)} received you would pay {nairaExact(successFeeParts(100000, rate).total)}.
             </p>
             <div style={{ marginTop: 12 }}>
               <Check checked={payAck} onToggle={() => setPayAck((v) => !v)}>
-                <b>I understand the fees above.</b> I agree to pay {nairaExact(total)} now and {rate}% of any dividend I receive.
+                <b>I understand the fees above.</b> I agree to pay {nairaExact(total)} now, which is not refunded, and {rate}% plus VAT of any dividend I receive.
               </Check>
             </div>
           </section>
@@ -394,7 +434,7 @@ export default function PilotPage() {
           <section className="card">
             <h2>Your go-ahead <Why k="goAhead" /></h2>
             <Check checked={consent} onToggle={() => setConsent((v) => !v)}>
-              <b>I let Dividendii act for me on the companies I listed.</b> That means completing my registrar mandate form, signing a letter of authority with the signature I drew, and emailing both, with my passport photo and the details I gave, to the registrar. It covers these holdings only. Dividendii can&apos;t sell or transfer my shares, and can&apos;t receive my money.
+              <b>I let Dividendii act for me on the companies I listed.</b> That means completing my registrar mandate form, signing a Power of Attorney with the signature I drew, and emailing both, with my passport photo and the details I gave, to the registrar. It covers these holdings only. Dividendii can&apos;t sell or transfer my shares, and can&apos;t receive my money.
             </Check>
             <div className="psum" style={{ marginTop: 16 }}>
               <span>{held.length} {held.length === 1 ? "company" : "companies"} with {byRegistrar.map((g) => g.r.name).join(" and ")}</span>
@@ -440,15 +480,15 @@ function Done({ r, email, first, rate, perCompany }: { r: Result; email: string;
       <section className="card">
         <h1>{pending ? `Got it, ${first}. Sending your forms now.` : ok ? `Done, ${first}. Your forms are on their way.` : r.sendStatus === "partial" ? "Part of your submission went out" : "We saved your details, but the email didn't go yet"}</h1>
         <p className="lede">
-          {pending && <>Your details are saved under reference <b>{r.ref}</b>. We&apos;re emailing your completed mandate form and signed letter of authority to {r.registrars.join(" and ")} now. This takes a few seconds.</>}
-          {ok && <>We sent your completed mandate form and signed letter of authority to {r.registrars.join(" and ")}. A confirmation is on its way to <b>{email}</b>.</>}
+          {pending && <>Your details are saved under reference <b>{r.ref}</b>. We&apos;re emailing your completed mandate form and signed Power of Attorney to {r.registrars.join(" and ")} now. This takes a few seconds.</>}
+          {ok && <>We sent your completed mandate form and signed Power of Attorney to {r.registrars.join(" and ")}. A confirmation is on its way to <b>{email}</b>.</>}
           {r.sendStatus === "partial" && <>One registrar&apos;s email didn&apos;t go. Your details are saved, and we&apos;ll send the rest. You don&apos;t need to do anything.</>}
           {r.sendStatus === "failed" && <>Nothing has reached the registrar yet. Your details are saved with us and we&apos;ll send them. You don&apos;t need to fill this in again.</>}
         </p>
         <div className="ledger" style={{ margin: "8px 0 16px" }}>
           <div className="row"><span className="k">Your reference</span><span className="v">{r.ref}</span></div>
           <div className="row"><span className="k">Companies</span><span className="v">{r.companyCount}</span></div>
-          <div className="row"><span className="k">Our fee</span><span className="v">Start fee {nairaExact(r.payment.amountDue)} ({naira(perCompany)} + VAT per company): we will email you how to pay. Then {rate}% only when you are paid</span></div>
+          <div className="row"><span className="k">Our fee</span><span className="v">Start fee {nairaExact(r.payment.amountDue)} ({naira(perCompany)} + VAT per company): we will email you how to pay. Not refundable. Then {rate}% plus VAT, only when you are paid</span></div>
         </div>
         <h2>What happens next</h2>
         <ol className="pdone-steps">

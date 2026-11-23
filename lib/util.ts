@@ -20,6 +20,8 @@ export function delay(ms: number): Promise<void> {
 }
 
 export function errorMessage(e: unknown): string {
+  // A dropped connection shows up as the browser's own words ("Failed to fetch", "Load failed"): say what to do instead.
+  if (e instanceof Error && /^(failed to fetch|load failed|networkerror|network request failed)/i.test(e.message)) return "We could not connect. Check your internet and try again.";
   if (e instanceof Error) return e.message;
   if (typeof e === "string") return e;
   return "Something went wrong. Try again.";

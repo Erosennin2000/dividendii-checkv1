@@ -119,7 +119,7 @@ describe("submitPilot", () => {
       expect(m.text).toContain("Funke Ogunyemi"); // next of kin
       expect(m.text).toContain("Wale Ogunyemi"); // other spellings
       expect(m.from).toBe("Dividendii <dami@dividendii.com>");
-      expect(m.attachments!.map((a) => a.filename.split("-")[0])).toEqual(["Mandate", "Letter"]);
+      expect(m.attachments!.map((a) => a.filename.split("-")[0])).toEqual(["Mandate", "Power"]);
       for (const a of m.attachments!) expect((await PDFDocument.load(a.content)).getPageCount()).toBeGreaterThan(0);
     }
     const first = reg.find((m) => m.subject.includes("first") || m.text.includes("First Registrars"))!;
@@ -139,13 +139,13 @@ describe("submitPilot", () => {
     expect(saved?.emails.filter((e) => e.kind === "registrar").every((e) => e.wouldHaveGoneTo)).toBe(true);
   }, 60_000);
 
-  it("live mode: goes to the registrar's own address and blind-copies the admin", async () => {
+  it("live mode: goes to the registrar's own address and copies the admin on CC", async () => {
     process.env.PILOT_MODE = "live";
     const mailer = new FakeMailer();
     await submitPilot(parsePilotInput(raw({ holdings: [{ registrarId: "coronation", company: "Dangote Cement PLC" }] })), { store: memoryStore(), mailer });
     const m = mailer.sent.find((x) => x.attachments?.length)!;
     expect(m.to).toBe("customercare@coronationregistrars.com");
-    expect(m.bcc).toBe("admin@example.com");
+    expect(m.cc).toBe("admin@example.com");
     expect(m.subject).not.toContain("TEST");
   }, 60_000);
 
@@ -458,7 +458,7 @@ describe("Supabase store and staff sign-in", () => {
 
   it("only staff on the list get in", async () => {
     const req = (t?: string) => new Request("http://x/api", { headers: t ? { authorization: `Bearer ${t}` } : {} });
-    const status = async (p: Promise<void>) => { try { await p; return 200; } catch (e) { expect(e instanceof AdminError).toBe(true); return (e as AdminError).status; } };
+    const status = async (p: Promise<unknown>) => { try { await p; return 200; } catch (e) { expect(e instanceof AdminError).toBe(true); return (e as AdminError).status; } };
     expect(await status(requirePilotAdmin(req("token-admin")))).toBe(200);
     expect(await status(requirePilotAdmin(req()))).toBe(401);
     expect(await status(requirePilotAdmin(req("junk")))).toBe(401);
@@ -519,7 +519,7 @@ describe("admin settings", () => {
     for (const m of reg) {
       expect(m.from).toBe("Vendii Team <hello@vendii.ng>");
       expect(m.replyTo).toBe("support@vendii.ng");
-      expect(m.bcc).toBe("boss@vendii.ng");
+      expect(m.cc).toBe("boss@vendii.ng");
       expect(m.text).toContain("Vendii is sending this on behalf of");
       expect(m.text).toContain("Please confirm receipt.");
       expect(m.text).not.toContain("Dividendi");
@@ -544,5 +544,26 @@ describe("admin settings", () => {
   it("the form's own address is used again when an admin clears the box", () => {
     const e = effectiveSettings({ registrars: { centurion: { email: "" } } });
     expect(e.registrars.centurion.email).toBe(defaultSettings().registrars.centurion.email);
+  });
+});
+
+describe("input and password rules added before launch", () => {
+  it("refuses passwords that are spaces or the email, and keeps the other rules", async () => {
+    const { passwordProblem } = await import("@/lib/pilot/account");
+    expect(passwordProblem("          ")).not.toBeNull();
+    expect(passwordProblem("ada@example.com", "Ada@Example.com")).not.toBeNull();
+    expect(passwordProblem("12345678")).not.toBeNull();
+    expect(passwordProblem("a good long one 7")).toBeNull();
+  });
+  it("accepts only one clean email address", async () => {
+    const { isEmail } = await import("@/lib/domain/validation");
+    expect(isEmail("ada@example.com")).toBe(true);
+    expect(isEmail("ada@example.com, bola@example.com")).toBe(false);
+    expect(isEmail("ada@@example.com")).toBe(false);
+    expect(isEmail("ada@example")).toBe(false);
+  });
+  it("keeps at most 20 other spellings", () => {
+    const many = Array.from({ length: 30 }, (_, i) => `Spelling ${i}`);
+    expect(parsePilotInput(raw({ variants: many })).variants).toHaveLength(20);
   });
 });

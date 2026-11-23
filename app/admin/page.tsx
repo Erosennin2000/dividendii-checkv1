@@ -4,7 +4,7 @@ import { withBase } from "@/lib/base";
 import { nairaExact } from "@/lib/site";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { naira } from "@/lib/domain/fees";
-import { actOnSubmission, adminSignIn, adminToken, downloadBackup, downloadFile, feedbackCsv, fileUrl, leadsCsv, listFeedback, listLeads, listSubmissions, markFeedback, SignedOut, submissionsCsv } from "@/lib/pilot/client";
+import { actOnSubmission, adminSignIn, adminSignOut, deleteSubmission, adminToken, downloadBackup, downloadFile, feedbackCsv, fileUrl, leadsCsv, listFeedback, listLeads, listSubmissions, markFeedback, SignedOut, submissionsCsv } from "@/lib/pilot/client";
 import { PROGRESS_LABEL, type PilotFeedback, type ProgressStatus } from "@/lib/pilot/types";
 import { PILOT_REGISTRARS } from "@/lib/pilot/config";
 import type { PilotLeadView, PilotSubmission } from "@/lib/pilot/types";
@@ -66,7 +66,7 @@ function Preview({ sub, registrarId, onClose, onChase, busy }: {
       <div className="card" style={{ width: "min(1040px, 100%)", display: "grid", gridTemplateColumns: "minmax(0,1fr) 300px", gap: 20 }}>
         <div style={{ minWidth: 0 }}>
           <div className="tabs" role="tablist" style={{ marginBottom: 12 }}>
-            {files.map((f) => <button key={f.name} className="tab" role="tab" aria-selected={which === f.name} onClick={() => setWhich(f.name)}>{f.kind === "mandate" ? "Mandate form" : "Letter of authority"}</button>)}
+            {files.map((f) => <button key={f.name} className="tab" role="tab" aria-selected={which === f.name} onClick={() => setWhich(f.name)}>{f.kind === "mandate" ? "Mandate form" : "Power of Attorney"}</button>)}
           </div>
           {err ? <div className="field-error">{err}</div> : url ? <iframe className="pdfview" style={{ height: "74vh" }} src={url} title={file?.filename} /> : <div className="center-note"><span className="spin" /></div>}
         </div>
@@ -101,6 +101,7 @@ function Preview({ sub, registrarId, onClose, onChase, busy }: {
 
 export default function PilotAdmin() {
   const [subs, setSubs] = useState<PilotSubmission[] | null>(null);
+  const [total, setTotal] = useState(0);
   const [leads, setLeads] = useState<PilotLeadView[]>([]);
   const [tab, setTab] = useState<"subs" | "leads" | "feedback">("subs");
   const [feedback, setFeedback] = useState<PilotFeedback[]>([]);
@@ -116,7 +117,7 @@ export default function PilotAdmin() {
   const [signedOut, setSignedOut] = useState(false);
   const [preview, setPreview] = useState<{ id: string; registrarId: string } | null>(null);
   const load = useCallback(() => Promise.all([listSubmissions(), listLeads(), listFeedback().catch(() => [] as PilotFeedback[])])
-    .then(([s, l, f]) => { setSubs(s); setLeads(l); setFeedback(f); setSignedOut(false); setError(null); })
+    .then(([s, l, f]) => { setSubs(s.submissions); setTotal(s.total); setLeads(l); setFeedback(f); setSignedOut(false); setError(null); })
     .catch((e) => { if (e instanceof SignedOut) setSignedOut(true); else setError(errorMessage(e)); }), []);
   useEffect(() => { void load(); }, [load]);
   // New submissions appear on their own.
@@ -159,6 +160,7 @@ export default function PilotAdmin() {
         </div>
         <div className="row" style={{ gap: 8 }}>
         <a className="btn ghost sm" href={withBase("/admin/settings")}>Settings</a>
+        <button className="btn ghost sm" onClick={() => { adminSignOut(); setSubs(null); setSignedOut(true); }}>Sign out</button>
         <button className="btn ghost sm" disabled={busy === "backup"} title="Saves every record and a list of every PDF to your computer. Contains personal data: keep it somewhere private."
           onClick={async () => {
             setBusy("backup"); setError(null);
@@ -185,6 +187,7 @@ export default function PilotAdmin() {
       </div>
 
       {error && <div className="field-error" style={{ marginBottom: 12 }}>{error}</div>}
+      {total > all.length && <div className="field-error" style={{ marginBottom: 12 }}>Showing the newest {all.length.toLocaleString("en-NG")} of {total.toLocaleString("en-NG")} submissions. Older ones are not on this page: use Download backup to see all of them.</div>}
       <div className="tabs" role="tablist" style={{ marginBottom: 16 }}>
         <button className="tab" role="tab" aria-selected={tab === "subs"} onClick={() => setTab("subs")}>Submissions ({all.length})</button>
         <button className="tab" role="tab" aria-selected={tab === "leads"} onClick={() => setTab("leads")}>Leads and accounts ({leads.length})</button>
@@ -283,6 +286,11 @@ export default function PilotAdmin() {
                 <div className="row"><span className="k">Next of kin</span><span className="v">{[sel.atPurchase.nextOfKinName, sel.atPurchase.nextOfKinRelationship, sel.atPurchase.nextOfKinPhone].filter(Boolean).join(", ")}</span></div>
               </div>
 
+              {(sel.payment.duplicates?.length ?? 0) > 0 && (
+                <div className="field-error">
+                  <b>Paid more than once.</b> Paystack took {sel.payment.duplicates!.length} extra payment{sel.payment.duplicates!.length === 1 ? "" : "s"} for this submission ({sel.payment.duplicates!.map((d) => d.reference).join(", ")}). Refund the extra one in your Paystack dashboard.
+                </div>
+              )}
               {PILOT_REGISTRARS.filter((r) => sel.holdings.some((h) => h.registrarId === r.id)).map((r) => {
                 const form = sel.forms.find((f) => f.registrarId === r.id);
                 const last = [...sel.emails].reverse().find((e) => e.kind === "registrar" && e.registrarId === r.id);
@@ -304,13 +312,12 @@ export default function PilotAdmin() {
 
               <div className="card" style={{ background: "var(--surface-2)", border: 0 }}>
                 <h4 style={{ margin: "0 0 6px" }}>Progress the customer sees</h4>
-                <p className="tiny">Saved, paid and sent show by themselves. Add what the registrar tells you; it appears in their account at once.</p>
+                <p className="tiny">Saved, paid and sent show by themselves. Add what the registrar tells you; it appears in their account at once. Updates can't be removed. If one is wrong, add a new update that corrects it.</p>
                 {(sel.progress ?? []).length > 0 && (
                   <ol className="tiny" style={{ margin: "6px 0 10px", paddingLeft: 18 }}>
                     {(sel.progress ?? []).map((p, i) => (
                       <li key={i} style={{ marginBottom: 4 }}>
-                        <b>{PILOT_REGISTRARS.find((r) => r.id === p.registrarId)?.name.split(" ")[0]}</b>: {PROGRESS_LABEL[p.status]} &middot; {when(p.at)}{p.note ? ` · “${p.note}”` : ""}{" "}
-                        <button className="btn quiet sm" style={{ minHeight: 24, padding: "0 8px" }} disabled={busy === `rp-${i}`} onClick={() => { if (window.confirm("Remove this update? The customer will no longer see it.")) void run(sel.id, { action: "removeProgress", index: i }, `rp-${i}`); }}>Remove</button>
+                        <b>{PILOT_REGISTRARS.find((r) => r.id === p.registrarId)?.name.split(" ")[0]}</b>: {PROGRESS_LABEL[p.status]} &middot; {when(p.at)}{p.by ? ` · by ${p.by}` : ""}{p.note ? ` · “${p.note}”` : ""}
                       </li>
                     ))}
                   </ol>
@@ -374,6 +381,19 @@ export default function PilotAdmin() {
                 <textarea id="pnote" className="input" rows={3} style={{ minHeight: 80 }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Chased on Monday, registrar said..." />
                 <button className="btn ghost sm" style={{ marginTop: 6 }} disabled={busy === "note" || note === sel.note} onClick={() => run(sel.id, { action: "note", note }, "note")}>Save note</button>
               </div>
+
+              <details>
+                <summary className="tiny">Delete this person&apos;s record</summary>
+                <p className="tiny">Our privacy notice says we delete a person&apos;s data when they ask. This removes the record and every PDF and image saved with it. If it is their last submission, their account and any feedback they sent go too. It cannot be undone. Download a backup first if you may need it.</p>
+                <button className="btn ghost sm" disabled={busy === "del"} onClick={async () => {
+                  const typed = window.prompt(`Type ${sel.ref} to permanently delete this submission and its files.`, "");
+                  if (typed === null) return;
+                  setBusy("del"); setError(null);
+                  try { await deleteSubmission(sel.id, typed); setSubs((a) => a?.filter((x) => x.id !== sel.id) ?? null); setTotal((t) => Math.max(0, t - 1)); setOpen(null); }
+                  catch (e) { if (e instanceof SignedOut) setSignedOut(true); else setError(errorMessage(e)); }
+                  finally { setBusy(null); }
+                }}>{busy === "del" ? "Deleting" : "Delete permanently"}</button>
+              </details>
 
               <details>
                 <summary className="tiny">Email log ({sel.emails.length})</summary>

@@ -31,11 +31,20 @@ async function authed(url: string, init: RequestInit = {}) {
   return res;
 }
 
-export async function listSubmissions(): Promise<PilotSubmission[]> {
-  return (await (await authed("/api/pilot/submissions")).json()).submissions;
+export async function listSubmissions(): Promise<{ submissions: PilotSubmission[]; total: number }> {
+  const j = await (await authed("/api/pilot/submissions")).json();
+  return { submissions: j.submissions, total: j.total ?? j.submissions.length };
 }
 
-export async function actOnSubmission(id: string, body: { action: "resend" | "chase" | "markPaid" | "markUnpaid" | "note" | "sendPayLink" | "requestSuccessFee" | "markSuccessPaid" | "addProgress" | "removeProgress" | "customerMessage"; registrarId?: string; note?: string; message?: string; amount?: number | string; status?: string; index?: number }): Promise<PilotSubmission> {
+/** Staff only: signs out here (the server keeps nothing). */
+export function adminSignOut() { adminToken.set(null); }
+
+/** Staff only: delete a submission and its files. The reference must be typed to confirm. */
+export async function deleteSubmission(id: string, ref: string): Promise<void> {
+  await authed(`/api/pilot/submissions/${id}`, { method: "POST", body: JSON.stringify({ action: "delete", note: ref }) });
+}
+
+export async function actOnSubmission(id: string, body: { action: "resend" | "chase" | "markPaid" | "markUnpaid" | "note" | "sendPayLink" | "requestSuccessFee" | "markSuccessPaid" | "addProgress" | "customerMessage"; registrarId?: string; note?: string; message?: string; amount?: number | string; status?: string; index?: number }): Promise<PilotSubmission> {
   const res = await authed(`/api/pilot/submissions/${id}`, { method: "POST", body: JSON.stringify(body) });
   return (await res.json()).submission;
 }

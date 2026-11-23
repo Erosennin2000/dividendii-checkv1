@@ -1,5 +1,5 @@
 /**
- * Makes someone Vendii staff, or takes it away. They must have signed in once first.
+ * Makes someone Dividendii staff, or takes it away. They must have signed in once first.
  *
  *   npm run set-role -- +2348031234567 ops
  *   npm run set-role -- you@dividendi.ng ops

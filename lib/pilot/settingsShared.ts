@@ -8,7 +8,7 @@ export interface RegistrarSetting { enabled: boolean; email: string }
 
 /** Everything the admin can edit. All fields optional when stored: a missing one means "use the default". */
 export interface PilotSettings {
-  /** The name registrars and shareholders see in emails and on the letter of authority. */
+  /** The name registrars and shareholders see in emails and on the Power of Attorney. */
   brandName: string;
   /** "live" sends to real registrars. Anything else is test. */
   mode: "test" | "live";
@@ -17,7 +17,7 @@ export interface PilotSettings {
   senderName: string;
   senderEmail: string;
   replyTo: string;
-  /** Blind-copied on every live registrar email. */
+  /** On CC (visible to the registrar) on every live registrar email. Also where staff alerts are sent. */
   adminCopy: string;
   /** Where registrar emails go while in test mode. */
   testInbox: string;

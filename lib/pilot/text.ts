@@ -5,6 +5,7 @@
  */
 export function pdfSafe(s: string): string {
   return (s ?? "")
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/g, "")
     .normalize("NFD")
     .replace(/\p{M}/gu, "")
     .replace(/[‘’]/g, "'")
@@ -14,4 +15,6 @@ export function pdfSafe(s: string): string {
     .replace(/[^\x20-\x7E\xA0-\xFF]/g, "?");
 }
 
-export const clean = (s: unknown, max = 300) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+/** Characters nobody can see (zero-width spaces, direction marks, control codes) that would print as "?" on a form. */
+const INVISIBLE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/g;
+export const clean = (s: unknown, max = 300) => String(s ?? "").replace(INVISIBLE, "").replace(/\s+/g, " ").trim().slice(0, max);

@@ -64,6 +64,7 @@ export function Why({ k }: { k: WhyKey }) {
           <b>{t.title}</b>
           <span>{t.why}</span>
           {t.where && <span className="why-where">{t.where}</span>}
+          {t.link && <a className="why-where" href={t.link.href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "underline" }}>{t.link.text}</a>}
         </span>
       )}
     </span>

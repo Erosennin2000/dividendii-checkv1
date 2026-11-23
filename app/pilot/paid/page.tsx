@@ -23,6 +23,7 @@ export default function PaidPage() {
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.error ?? "We couldn't confirm that payment.");
+        if ((data as Outcome).ok) { try { sessionStorage.removeItem("dividendii-check-draft"); } catch { /* ignore */ } }
         setOut(data as Outcome);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "We couldn't confirm that payment."));
@@ -66,7 +67,7 @@ export default function PaidPage() {
     <div className="pwrap"><section className="card">
       <h1>{sent ? `Payment received, ${out.firstName}. Your forms are on their way.` : `Payment received, ${out.firstName}.`}</h1>
       <p className="lede">
-        {sent && <>We sent your completed mandate form and signed letter of authority to {out.registrars.join(" and ")}. A confirmation is on its way to your email.</>}
+        {sent && <>We sent your completed mandate form and signed Power of Attorney to {out.registrars.join(" and ")}. A confirmation is on its way to your email.</>}
         {(out.sendStatus === "queued" || out.sendStatus === "sending") && <>We are sending your forms to {out.registrars.join(" and ")} now. A confirmation will reach your email shortly.</>}
         {out.sendStatus === "partial" && <>Most of your forms have gone. One registrar&apos;s email didn&apos;t send, and we will send it for you. You don&apos;t need to do anything.</>}
         {out.sendStatus === "failed" && <>Your payment is safe and recorded, but the email to the registrar didn&apos;t go yet. We will send it for you. You don&apos;t need to pay or fill anything in again.</>}

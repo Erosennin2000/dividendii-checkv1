@@ -12,9 +12,15 @@ export interface PilotStore {
   /** Writes the record and its files together. The record is saved before any email goes out. */
   save(sub: PilotSubmission, files: { path: string; bytes: Uint8Array; contentType: string }[]): Promise<void>;
   update(id: string, patch: Partial<PilotSubmission>): Promise<void>;
+  /** Removes the record and every file it points to (the staff "Delete" button; keeps the privacy promise). */
+  deleteSubmission(id: string): Promise<void>;
   get(id: string): Promise<PilotSubmission | null>;
   /** Newest first. */
   list(limit?: number): Promise<PilotSubmission[]>;
+  /** Removes this person's account (lead) and feedback, matched on email. Used after their last submission is deleted. */
+  deletePersonData(email: string): Promise<void>;
+  /** How many submissions exist in all. */
+  countSubmissions(): Promise<number>;
   /** One person's submissions, newest first. */
   listByEmail(email: string): Promise<PilotSubmission[]>;
   saveFeedback(f: PilotFeedback): Promise<void>;
@@ -56,7 +62,19 @@ export function memoryStore(): PilotStore {
       if (!cur) throw new Error("Submission not found.");
       mem.subs.set(id, plain({ ...cur, ...patch }));
     },
+    async deleteSubmission(id) {
+      const cur = mem.subs.get(id);
+      if (!cur) throw new Error("Submission not found.");
+      for (const f of cur.files ?? []) mem.files.delete(f.path);
+      mem.subs.delete(id);
+    },
     async get(id) { const s = mem.subs.get(id); return s ? plain(s) : null; },
+    async countSubmissions() { return mem.subs.size; },
+    async deletePersonData(email) {
+      const e = email.trim().toLowerCase();
+      for (const [k, l] of [...mem.leads]) if (l.email.trim().toLowerCase() === e) mem.leads.delete(k);
+      for (const [k, x] of [...fb]) if (x.email.trim().toLowerCase() === e) fb.delete(k);
+    },
     async list(limit = 500) {
       return [...mem.subs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit).map(plain);
     },
@@ -92,7 +110,7 @@ export function memoryStore(): PilotStore {
  * Supabase Storage for the PDFs. Tables and bucket are created by supabase/pilot.sql.
  */
 export async function supabaseStore(): Promise<PilotStore> {
-  const { selectRows, upsertRow, uploadObject, downloadObject } = await import("./supabase");
+  const { selectRows, upsertRow, uploadObject, downloadObject, deleteObject, deleteRow, countRows } = await import("./supabase");
   const subRow = (s: PilotSubmission) => ({ id: s.id, ref: s.ref, created_at: s.createdAt, email: s.profile.email, send_status: s.sendStatus, mode: s.mode, data: plain(s) });
   const leadRow = (l: PilotLead) => ({ id: l.id, email: l.email, updated_at: l.updatedAt, data: plain(l) });
   const one = async (id: string) => (await selectRows<{ data: PilotSubmission }>("pilot_submissions", `select=data&id=eq.${encodeURIComponent(id)}&limit=1`))[0]?.data ?? null;
@@ -106,7 +124,22 @@ export async function supabaseStore(): Promise<PilotStore> {
       if (!cur) throw new Error("Submission not found.");
       await upsertRow("pilot_submissions", subRow({ ...cur, ...patch }));
     },
+    async deleteSubmission(id) {
+      const cur = await one(id);
+      if (!cur) throw new Error("Submission not found.");
+      for (const f of cur.files ?? []) await deleteObject(f.path); // files first: if one fails, the record stays so staff can retry
+      await deleteRow("pilot_submissions", id);
+    },
     get: one,
+    countSubmissions: () => countRows("pilot_submissions"),
+    async deletePersonData(email) {
+      const e = email.trim().toLowerCase();
+      // ilike would treat "_" in an address as a wildcard, so fetch the candidates and delete only exact matches, by id.
+      for (const table of ["pilot_leads", "pilot_feedback"]) {
+        const rows = await selectRows<{ id: string; email: string | null }>(table, `select=id,email&email=ilike.${encodeURIComponent(e.replace(/[%*\\]/g, "_"))}&limit=1000`);
+        for (const r of rows) if ((r.email ?? "").trim().toLowerCase() === e) await deleteRow(table, r.id);
+      }
+    },
     async list(limit = 500) {
       return (await selectRows<{ data: PilotSubmission }>("pilot_submissions", `select=data&order=created_at.desc&limit=${limit}`)).map((r) => r.data);
     },

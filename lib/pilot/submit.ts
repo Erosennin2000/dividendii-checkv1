@@ -7,6 +7,8 @@ import { buildAuthorityLetter } from "./authority";
 import { PILOT_REGISTRARS, pilotRegistrar, type PilotRegistrarId } from "./config";
 import { effectiveSettings } from "./settings";
 import type { PilotSettings } from "./settingsShared";
+import { alertStaff } from "./alerts";
+import { legalStamp } from "@/lib/site";
 import { chaseEmail, confirmationEmail, pilotEnv, registrarEmail, type Mailer } from "./mail";
 import type { PilotStore } from "./store";
 import { pdfSafe } from "./text";
@@ -62,13 +64,16 @@ async function sendToRegistrar(sub: PilotSubmission, registrarId: PilotRegistrar
     const banner = live ? "" : `TEST MODE: this would have gone to ${regEmail}. It was sent to ${to} instead.\n\n`;
     const res = await deps.mailer.send({
       from: env.from, to,
-      bcc: live && env.admin && env.admin !== to ? env.admin : undefined,
+      // The staff copy is a visible CC on live registrar emails, so staff see exactly what the registrar saw.
+      cc: live && env.admin && env.admin.toLowerCase() !== to.toLowerCase() ? env.admin : undefined,
       replyTo: env.replyTo || undefined,
       subject: (live ? "" : `[TEST, would go to ${regEmail}] `) + body.subject,
       text: banner + body.text,
       html: (live ? "" : `<p style="background:#fff4d6;padding:8px 12px;border-radius:6px"><b>TEST MODE:</b> this would have gone to ${regEmail}. It was sent to ${to} instead.</p>`) + body.html,
       attachments,
     });
+    // A refused address is not a sent email, even if another recipient (the staff copy) was accepted.
+    if ((res.rejected ?? []).length) throw new Error("The mail server refused: " + res.rejected!.join(", "));
     return { ...base, status: "sent", messageId: res.messageId };
   } catch (e) {
     console.error("[pilot] registrar email failed", sub.ref, registrarId, e);
@@ -83,6 +88,7 @@ async function sendConfirmation(sub: PilotSubmission, deps: Deps, settings: Pilo
   try {
     const body = confirmationEmail(sub, settings);
     const res = await deps.mailer.send({ from: env.from, to: sub.profile.email, replyTo: env.replyTo || undefined, ...body });
+    if ((res.rejected ?? []).length) throw new Error("The mail server refused: " + res.rejected!.join(", "));
     return { ...base, status: "sent", messageId: res.messageId };
   } catch (e) {
     console.error("[pilot] confirmation email failed", sub.ref, e);
@@ -91,16 +97,31 @@ async function sendConfirmation(sub: PilotSubmission, deps: Deps, settings: Pilo
 }
 
 /**
- * Step one of a submission: fill each registrar's form, write the authority letter, save the record and PDFs.
+ * Step one of a submission: fill each registrar's form, write the Power of Attorney, save the record and PDFs.
  * Nothing is emailed here, so this returns fast and the record is in the admin page straight away.
  * dispatchPilot does the sending.
  */
-export async function createPilot(input: PilotInput, deps: Deps): Promise<PilotSubmission> {
+export interface CreateOptions {
+  /** Where the request came from, saved as proof of what the customer agreed to. */
+  meta?: { ip?: string; device?: string };
+  /** An earlier unpaid record for the same person and companies: update it instead of making a second one. */
+  reuse?: { id: string; ref: string; createdAt: string };
+}
+
+/** The earlier record to reuse, if this person already has an unpaid, unsent one for exactly the same companies. */
+export async function findReusable(input: PilotInput, deps: Deps): Promise<PilotSubmission | null> {
+  const key = (h: { registrarId: string; company: string }[]) => h.map((x) => `${x.registrarId}|${x.company}`).sort().join("\n");
+  const mine = await deps.store.listByEmail(input.profile.email);
+  const want = key(input.holdings);
+  return mine.find((s) => s.payment.status === "awaiting_payment" && s.sendStatus === "queued" && s.mode === (deps.settings?.mode ?? s.mode) && key(s.holdings) === want) ?? null;
+}
+
+export async function createPilot(input: PilotInput, deps: Deps, opts: CreateOptions = {}): Promise<PilotSubmission> {
   const settings = await settingsFor(deps);
   const env = pilotEnv(settings);
   const now = deps.now?.() ?? new Date();
-  const id = randomBytes(12).toString("hex");
-  const ref = newRef();
+  const id = opts.reuse?.id ?? randomBytes(12).toString("hex");
+  const ref = opts.reuse?.ref ?? newRef();
   const profile = safeProfile(input.profile);
   const at = {
     address: pdfSafe(input.atPurchase.address), phone: pdfSafe(input.atPurchase.phone),
@@ -120,7 +141,7 @@ export async function createPilot(input: PilotInput, deps: Deps): Promise<PilotS
     const { pdf, forms: filled } = await fillForms(profile, companies.map((company) => ({ registrarId: rid, company })), { photo, signature });
     const authority = await buildAuthorityLetter({ registrar: reg.name, ref, profile, atPurchase: at, variants: input.variants.map(pdfSafe), companies, signature, replyTo: env.replyTo, brand: settings.brandName, now });
     const mandateName = `Mandate-${reg.name.split(" ")[0]}-${ref}.pdf`;
-    const authorityName = `Letter-of-authority-${reg.name.split(" ")[0]}-${ref}.pdf`;
+    const authorityName = `Power-of-Attorney-${reg.name.split(" ")[0]}-${ref}.pdf`;
     for (const [kind, filename, bytes] of [["mandate", mandateName, pdf], ["authority", authorityName, authority]] as const) {
       const path = `pilot-submissions/${id}/${filename}`;
       files.push({ name: `${kind}-${rid}`, registrarId: rid, kind, path, filename });
@@ -132,13 +153,14 @@ export async function createPilot(input: PilotInput, deps: Deps): Promise<PilotS
 
   const n = input.holdings.length;
   const sub: PilotSubmission = {
-    id, ref, createdAt: now.toISOString(), mode: env.mode, leadId: deps.leadId ?? "",
+    id, ref, createdAt: opts.reuse?.createdAt ?? now.toISOString(), mode: env.mode, leadId: deps.leadId ?? "",
     profile: input.profile, atPurchase: input.atPurchase, variants: input.variants, // the originals, exactly as typed
     holdings: input.holdings.map((h) => ({ ...h, registrar: pilotRegistrar(h.registrarId)!.name })),
     forms,
     // One fee model: a start fee per company plus VAT, paid before the forms go out; a success fee is asked for later.
     payment: { method: "pay_ahead", amountDue: Math.round(n * settings.payAheadPerCompany * 1.075 * 100) / 100, status: "awaiting_payment", paidAt: null },
     consentAt: now.toISOString(),
+    consent: { termsVersion: legalStamp("terms"), privacyVersion: legalStamp("privacy"), ip: (opts.meta?.ip ?? "").slice(0, 64), device: (opts.meta?.device ?? "").slice(0, 200) },
     files, emails: [], sendStatus: "queued", note: "",
   };
   await deps.store.save(sub, blobs);
@@ -168,6 +190,10 @@ export async function dispatchPilot(id: string, deps: Deps): Promise<PilotSubmis
   sub.sendStatus = sendStatusOf(sub);
   if (sub.sendStatus !== "failed") sub.emails.push(await sendConfirmation(sub, deps, settings));
   await deps.store.update(id, { emails: sub.emails, sendStatus: sub.sendStatus });
+  if (sub.sendStatus !== "sent") {
+    const bad = ids.filter((rid) => [...sub.emails].reverse().find((e) => e.kind === "registrar" && e.registrarId === rid)?.status !== "sent").map((rid) => pilotRegistrar(rid)?.name ?? rid);
+    await alertStaff(deps.mailer, settings, `Forms not sent: ${sub.ref}`, [`Reference ${sub.ref} (${sub.profile.firstName} ${sub.profile.surname}). The email to ${bad.join(", ")} did not go.`, sub.payment.status === "paid" ? "The customer HAS paid the start fee." : "The start fee is not paid yet.", "Open the staff page and press Send again."]);
+  }
   return sub;
 }
 
@@ -187,6 +213,12 @@ export async function resendPilot(id: string, registrarId: string | null, deps: 
     ? ids.filter((r) => r === registrarId)
     : ids.filter((r) => [...sub.emails].reverse().find((e) => e.kind === "registrar" && e.registrarId === r)?.status !== "sent");
   if (!targets.length) throw new Error(registrarId ? "That registrar isn't on this submission." : "Every email went through. Pick a registrar to send it again.");
+  // A second press a moment after a successful send would email the registrar twice. Make staff wait a few seconds.
+  const nowMs = (deps.now?.() ?? new Date()).getTime();
+  for (const rid of targets) {
+    const last = [...sub.emails].reverse().find((e) => (e.kind === "registrar" || e.kind === "chase") && e.registrarId === rid);
+    if (last?.status === "sent" && nowMs - new Date(last.at).getTime() < 15_000) throw new Error("That email went a moment ago. Wait a few seconds and look at the list before sending it again.");
+  }
   sub.emails.push(...(await Promise.all(targets.map((rid) => sendToRegistrar(sub, rid, deps, settings)))));
   sub.sendStatus = sendStatusOf(sub);
   const hadConfirmation = sub.emails.some((e) => e.kind === "confirmation" && e.status === "sent");

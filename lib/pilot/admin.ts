@@ -33,7 +33,7 @@ export async function adminLogin(email: string, password: string): Promise<{ tok
 }
 
 /** Every staff route starts here. Throws AdminError (401 or 403) unless the caller is staff. */
-export async function requirePilotAdmin(req: Request): Promise<void> {
+export async function requirePilotAdmin(req: Request): Promise<string> {
   const header = req.headers.get("authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
 
@@ -45,8 +45,9 @@ export async function requirePilotAdmin(req: Request): Promise<void> {
     if (!res.ok) throw new AdminError(401, "Your session has ended. Sign in again.");
     const email = String(((await res.json()) as { email?: string }).email ?? "").toLowerCase();
     if (!adminEmails().includes(email)) throw new AdminError(403, "That account isn't on the staff list.");
-    return;
+    return email;
   }
   if (process.env.NODE_ENV === "production") throw new AdminError(401, "Staff sign-in isn't configured. Set the Supabase keys.");
   // Local development with nothing configured: open, so you can click around.
+  return "local-dev";
 }

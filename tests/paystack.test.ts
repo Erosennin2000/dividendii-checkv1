@@ -67,8 +67,8 @@ describe("fees", () => {
     expect(startFee(1, 150)).toBe(161.25);
     expect(startFee(3, 150)).toBe(483.75);
     expect(toKobo(161.25)).toBe(16125);
-    expect(successFeeOn(85000, 5)).toBe(4250);
-    expect(successFeeOn(1234.56, 5)).toBe(61.73);
+    expect(successFeeOn(85000, 5)).toBe(4568.75); // 5% = 4,250, plus 7.5% VAT = 318.75
+    expect(successFeeOn(1234.56, 5)).toBe(66.36); // 61.73 + 4.63 VAT
   });
   it("the key decides the mode", () => {
     expect(paystackMode({ PAYSTACK_SECRET_KEY: "" } as unknown as NodeJS.ProcessEnv)).toBe("off");
@@ -206,14 +206,14 @@ describe("success fee", () => {
     await expect(beginSuccessPayment(sub, 500, BASE, { store, mailer })).rejects.toThrow(/too small/); // 5% of 500 is ₦25
 
     const b = await beginSuccessPayment((await store.get(sub.id))!, 85000, BASE, { store, mailer });
-    expect(b.fee).toBe(4250);
-    expect(ps.inits.at(-1)).toMatchObject({ amount: 425000 });
+    expect(b.fee).toBe(4568.75) // 5% of 85,000 is 4,250, plus 7.5% VAT (318.75);
+    expect(ps.inits.at(-1)).toMatchObject({ amount: 456875 });
     expect(ps.inits.at(-1)!.metadata).toMatchObject({ kind: "success", received: 85000 });
 
     const done = await settlePayment(b.reference, { store, mailer });
     expect(done).toMatchObject({ kind: "success", ok: true });
     const saved = (await store.get(sub.id))!;
-    expect(saved.successFee).toMatchObject({ status: "paid", declared: 85000, fee: 4250, via: "paystack", requests: 1 });
+    expect(saved.successFee).toMatchObject({ status: "paid", declared: 85000, fee: 4568.75, via: "paystack", requests: 1 });
     expect(saved.payment.status).toBe("paid"); // the start fee record is untouched
   }, 60_000);
   it("two instalments add up instead of the second replacing the first", async () => {
@@ -222,11 +222,11 @@ describe("success fee", () => {
     await settlePayment(b1.reference, { store, mailer });
     const b2 = await beginSuccessPayment((await store.get(sub.id))!, 20000, BASE, { store, mailer });
     // While the second is still unpaid the totals do not move.
-    expect((await store.get(sub.id))!.successFee).toMatchObject({ status: "paid", declared: 85000, fee: 4250 });
+    expect((await store.get(sub.id))!.successFee).toMatchObject({ status: "paid", declared: 85000, fee: 4568.75 });
     await settlePayment(b2.reference, { store, mailer });
     await settlePayment(b2.reference, { store, mailer }); // the webhook and the return page both call: must not double count
     const saved = (await store.get(sub.id))!;
-    expect(saved.successFee).toMatchObject({ status: "paid", declared: 105000, fee: 5250 });
+    expect(saved.successFee).toMatchObject({ status: "paid", declared: 105000, fee: 5643.75 });
     expect(saved.successFee!.payments).toHaveLength(2);
     // Staff asking again keeps the history.
     const again = await requestSuccessFee(sub.id, "", BASE, { store, mailer });
@@ -236,7 +236,7 @@ describe("success fee", () => {
   it("does not count a payment that is smaller than the fee we asked for", async () => {
     const { ps, store, mailer, sub } = await sentSubmission();
     const b = await beginSuccessPayment(sub, 85000, BASE, { store, mailer });
-    ps.outcome.set(b.reference, { status: "success", amount: 1000 }); // ₦10 instead of ₦4,250
+    ps.outcome.set(b.reference, { status: "success", amount: 1000 }); // ₦10 instead of ₦4,568.75
     const r = await settlePayment(b.reference, { store, mailer });
     expect(r.ok).toBe(false);
     expect((await store.get(sub.id))!.successFee?.status).toBe("requested");
@@ -252,4 +252,76 @@ describe("webhook signature", () => {
     expect(validWebhookSignature(body, createHmac("sha512", "sk_test_other").update(body).digest("hex"))).toBe(false);
     expect(validWebhookSignature(body, null)).toBe(false);
   });
+});
+
+describe("launch safety: double payments, honest status, consent", () => {
+  it("a second paid payment is recorded, staff are alerted, and the forms go out once", async () => {
+    const ps = fakePaystack();
+    const store = memoryStore(), mailer = new FakeMailer();
+    const sub = await createPilot(input(), { store, mailer });
+    const a = await beginStartPayment(sub, BASE, { store, mailer });
+    if (a.paid) throw new Error("unexpected");
+    // Simulate a second tab: the reference was lost, so a second payment is started.
+    await store.update(sub.id, { payment: { ...sub.payment, reference: undefined } });
+    const b = await beginStartPayment((await store.get(sub.id))!, BASE, { store, mailer });
+    if (b.paid) throw new Error("unexpected");
+    expect(b.reference).not.toBe(a.reference);
+    await settlePayment(a.reference, { store, mailer });
+    const sentBefore = mailer.sent.filter((m) => m.attachments?.length).length;
+    await settlePayment(b.reference, { store, mailer });
+    const saved = (await store.get(sub.id))!;
+    expect(saved.payment.reference).toBe(a.reference);
+    expect(saved.payment.duplicates).toHaveLength(1);
+    expect(saved.payment.duplicates![0].reference).toBe(b.reference);
+    expect(mailer.sent.filter((m) => m.attachments?.length).length).toBe(sentBefore); // nothing re-sent
+    expect(mailer.sent.some((m) => m.subject.includes("Double payment"))).toBe(true);
+    void ps;
+  }, 60_000);
+
+  it("coming back after paying does not start a second payment", async () => {
+    fakePaystack();
+    const store = memoryStore(), mailer = new FakeMailer();
+    const sub = await createPilot(input(), { store, mailer });
+    const a = await beginStartPayment(sub, BASE, { store, mailer });
+    if (a.paid) throw new Error("unexpected");
+    // The person paid but the return page never ran. Pressing Pay again must find that out, not charge again.
+    const again = await beginStartPayment((await store.get(sub.id))!, BASE, { store, mailer });
+    expect(again.paid).toBe(true);
+    expect((await store.get(sub.id))!.payment.status).toBe("paid");
+  }, 60_000);
+
+  it("a registrar address the mail server refuses is Not sent, not Sent, and staff are told", async () => {
+    fakePaystack();
+    const store = memoryStore();
+    const mailer = new FakeMailer();
+    mailer.send = async (m: MailMessage) => { mailer.sent.push(m); return { messageId: "x", rejected: m.attachments?.length ? [m.to] : [] }; };
+    const sub = await createPilot(input(), { store, mailer });
+    const a = await beginStartPayment(sub, BASE, { store, mailer });
+    if (a.paid) throw new Error("unexpected");
+    await settlePayment(a.reference, { store, mailer });
+    const saved = (await store.get(sub.id))!;
+    expect(saved.sendStatus).not.toBe("sent");
+    expect(saved.emails.filter((e) => e.kind === "registrar").every((e) => e.status === "failed")).toBe(true);
+    expect(mailer.sent.some((m) => /not sent|failed/i.test(m.subject) && m.to === "admin@example.com")).toBe(true);
+  }, 60_000);
+
+  it("saves what the person agreed to, with the version, time and device", async () => {
+    const store = memoryStore(), mailer = new FakeMailer();
+    const sub = await createPilot(input(), { store, mailer }, { meta: { ip: "102.89.1.2", device: "Test Browser" } });
+    expect(sub.consent).toMatchObject({ ip: "102.89.1.2", device: "Test Browser" });
+    expect(sub.consent!.termsVersion).toMatch(/\d{4}/);
+    expect(sub.consent!.privacyVersion).toMatch(/\d{4}/);
+  }, 60_000);
+
+  it("deleting a submission removes the record and its files", async () => {
+    const store = memoryStore(), mailer = new FakeMailer();
+    const sub = await createPilot(input(), { store, mailer });
+    const path = sub.files[0].path;
+    const before = await store.countSubmissions();
+    await store.readFile(path); // exists
+    await store.deleteSubmission(sub.id);
+    expect(await store.get(sub.id)).toBeNull();
+    await expect(store.readFile(path)).rejects.toThrow();
+    expect(await store.countSubmissions()).toBe(before - 1);
+  }, 60_000);
 });

@@ -1,5 +1,6 @@
 {
   "crons": [
-    { "path": "/check/api/pilot/keepalive", "schedule": "17 6 * * 1" }
+    { "path": "/check/api/pilot/keepalive", "schedule": "17 6 * * 1" },
+    { "path": "/check/api/pilot/daily-check", "schedule": "30 6 * * *" }
   ]
 }

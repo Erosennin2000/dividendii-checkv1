@@ -98,7 +98,7 @@ export default function PilotSettingsPage() {
           </div>
           {live ? (
             <>
-              <p className="tiny"><b>Live:</b> emails go to the real registrars (shown in the table below), with a blind copy to you. Make sure each address is right first.</p>
+              <p className="tiny"><b>Live:</b> emails go to the real registrars (shown in the table below), with you on CC, so each registrar can see the copy address. Make sure each address is right first.</p>
               {draft.mode !== JSON.parse(saved).mode && (
                 <Check checked={confirmLive} onToggle={() => setConfirmLive((v) => !v)}>
                   <b>I&apos;ve checked the registrar addresses and understand real registrars will receive real submissions.</b>
@@ -116,7 +116,7 @@ export default function PilotSettingsPage() {
         <section className="card">
           <h2>Your business and sending email</h2>
           <div className="field-row">
-            <TextField label="Business name" value={draft.brandName} onChange={(v) => set("brandName", v)} hint="Shown in emails and on the letter of authority." />
+            <TextField label="Business name" value={draft.brandName} onChange={(v) => set("brandName", v)} hint="Shown in emails and on the Power of Attorney." />
             <TextField label="Sender name" value={draft.senderName} onChange={(v) => set("senderName", v)} hint="What people see as the sender." />
           </div>
           <div className="field-row">
@@ -126,7 +126,7 @@ export default function PilotSettingsPage() {
               hint="Registrars reply here." />
           </div>
           <div className="field-row">
-            <TextField label="Copy me on every live registrar email" value={draft.adminCopy} onChange={(v) => set("adminCopy", v.trim())} type="email" hint="Blind copy. Leave blank for no copy." error={draft.adminCopy && !isEmail(draft.adminCopy) ? "Not a valid email." : undefined} />
+            <TextField label="Copy me on every live registrar email" value={draft.adminCopy} onChange={(v) => set("adminCopy", v.trim())} type="email" hint="You are on CC, so the registrar sees this address. Use an address you are happy for them to see (for example, the support address registrars can reply to). Leave blank for no copy." error={draft.adminCopy && !isEmail(draft.adminCopy) ? "Not a valid email." : undefined} />
             <TextField label="Test inbox" value={draft.testInbox} onChange={(v) => set("testInbox", v.trim())} type="email" hint="Where emails go in test mode." error={draft.testInbox && !isEmail(draft.testInbox) ? "Not a valid email." : undefined} />
           </div>
           <p className="tiny">

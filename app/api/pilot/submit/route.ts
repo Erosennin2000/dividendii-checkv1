@@ -3,7 +3,7 @@ import { getMailer } from "@/lib/pilot/mail";
 import { effectiveSettings } from "@/lib/pilot/settings";
 import { tooMany } from "@/lib/pilot/rateLimit";
 import { getPilotStore } from "@/lib/pilot/store";
-import { createPilot } from "@/lib/pilot/submit";
+import { createPilot, findReusable } from "@/lib/pilot/submit";
 import { verifyToken } from "@/lib/pilot/token";
 import { PilotValidationError, parsePilotInput } from "@/lib/pilot/validate";
 
@@ -31,7 +31,13 @@ export async function POST(req: Request) {
     const settings = effectiveSettings(await store.getSettings());
     if (!settings.acceptingSubmissions) return NextResponse.json({ error: "We've paused new submissions for a moment. Please try again later." }, { status: 503 });
     const input = parsePilotInput({ ...raw, profile: { ...(raw?.profile ?? {}), email: who.email } }, { isOpen: (id) => settings.registrars[id]?.enabled === true });
-    const sub = await createPilot(input, { store, mailer: getMailer(), leadId: who.leadId, settings });
+    const deps = { store, mailer: getMailer(), leadId: who.leadId, settings };
+    // Pressing the button twice, or going Back and sending again, must not make a second record: reuse the unpaid one for the same companies.
+    const earlier = await findReusable(input, deps);
+    const sub = await createPilot(input, deps, {
+      meta: { ip, device: req.headers.get("user-agent") ?? "" },
+      reuse: earlier ? { id: earlier.id, ref: earlier.ref, createdAt: earlier.createdAt } : undefined,
+    });
     return NextResponse.json({
       id: sub.id,
       ref: sub.ref,

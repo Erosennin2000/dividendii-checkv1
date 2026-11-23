@@ -22,7 +22,7 @@ export function RequireAuth({ children, role }: { children: ReactNode; role?: Ro
     return (
       <div className="center-note">
         <div>
-          <h2>This area is for Vendii staff</h2>
+          <h2>This area is for Dividendii staff</h2>
           <p>You&apos;re signed in as {session.identifier}.</p>
           <Link className="btn" href="/dashboard">Go to my claims</Link>
         </div>

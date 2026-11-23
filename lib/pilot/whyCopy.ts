@@ -4,7 +4,7 @@
  * Keep to plain English. Do not name the payment company, the bank-check company, the regulator or any broker here
  * (a test checks that), and never promise anything the app does not do.
  */
-export interface WhyText { title: string; why: string; where?: string }
+export interface WhyText { title: string; why: string; where?: string; /** A link shown under the text, opened in a new tab so the form is not lost. */ link?: { text: string; href: string } }
 
 export const WHY = {
   firstName: {
@@ -51,8 +51,9 @@ export const WHY = {
   },
   bvn: {
     title: "Your BVN",
-    why: "Registrars ask for your BVN on the mandate form so a dividend goes only to an account that belongs to you. Where we can, we also check that your bank account name matches your BVN record, to catch typing mistakes. A BVN only identifies you. It does not give anyone access to your money.",
+    why: "Registrars ask for your BVN on the mandate form so a dividend goes only to an account that belongs to you. Where we can, we also check that your bank account name matches your BVN record, to catch typing mistakes. A BVN alone cannot move money: it only identifies you, and it does not give anyone access to your account.",
     where: "Don't know it? Dial *565*0# on the phone number linked to your bank.",
+    link: { text: "How we use and protect your data (privacy notice)", href: "https://www.dividendii.com/legal#privacy" },
   },
   account: {
     title: "Your account number",
@@ -88,11 +89,11 @@ export const WHY = {
   },
   signature: {
     title: "Your signature",
-    why: "Registrars compare your signature with the specimen they hold from when you bought the shares, so sign the way you signed then. It also goes on your letter of authority.",
+    why: "Registrars compare your signature with the specimen they hold from when you bought the shares, so sign the way you signed then. It also goes on your Power of Attorney.",
   },
   fee: {
     title: "Why there is a fee",
-    why: "The start fee covers our work on each company, whatever the outcome. It is not a promise that money will be found. The success fee is paid only if a dividend actually reaches your account, and you pay it then.",
+    why: "The start fee covers our work on each company, whatever the outcome. It is not a promise that money will be found. The start fee is not refunded, even if the registrar finds nothing or only a small amount. The success fee (5% plus VAT) is paid only if a dividend actually reaches your account, and you pay it then.",
   },
   goAhead: {
     title: "Why we need your go-ahead",

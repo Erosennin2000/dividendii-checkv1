@@ -32,7 +32,7 @@ export async function caller(req: Request): Promise<Caller> {
 }
 
 export function requireOps(c: Caller): void {
-  if (c.role !== "ops") throw new HttpError(403, "Only Vendii staff can do that.");
+  if (c.role !== "ops") throw new HttpError(403, "Only Dividendii staff can do that.");
 }
 
 /** Wraps a handler so thrown errors become JSON the UI can show as-is. */
