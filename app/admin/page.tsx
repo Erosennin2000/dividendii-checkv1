@@ -357,7 +357,7 @@ export default function PilotAdmin() {
                   {sel.successFee?.status === "paid" ? `Paid ${sel.successFee.fee != null ? nairaExact(sel.successFee.fee) : ""}${sel.successFee.paidAt ? `, ${when(sel.successFee.paidAt)}` : ""}${sel.successFee.via === "manual" ? ", marked by staff" : ""}`
                     : sel.successFee?.requests ? `Asked ${sel.successFee.requests} ${sel.successFee.requests === 1 ? "time" : "times"}, last ${when(sel.successFee.requestedAt!)}` : "Not asked yet"}
                 </span></div>
-                {sel.successFee?.declared != null && <div className="row"><span className="k">They said they received</span><span className="v">{nairaExact(sel.successFee.declared)}</span></div>}
+                {sel.successFee?.declared != null && <div className="row"><span className="k">They said they received{(sel.successFee.payments?.length ?? 0) > 1 ? ` (${sel.successFee.payments!.length} payments, total)` : ""}</span><span className="v">{nairaExact(sel.successFee.declared)}</span></div>}
               </div>
               <div className="field">
                 <label htmlFor="sfnote">Ask for the success fee</label>

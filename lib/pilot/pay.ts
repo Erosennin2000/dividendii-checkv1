@@ -5,7 +5,7 @@ import { initializePayment, paystackMode, paystackOn, verifyPayment, type Verifi
 import type { PilotSettings } from "./settingsShared";
 import { dispatchPilot, settingsFor, type Deps } from "./submit";
 import { signLink } from "./token";
-import type { EmailRecord, PilotSubmission, SuccessFee } from "./types";
+import type { EmailRecord, PilotSubmission, SuccessFee, SuccessFeePayment } from "./types";
 
 export const VAT = 0.075;
 /** Paystack will not take less than this in naira. */
@@ -73,7 +73,14 @@ export async function beginSuccessPayment(sub: PilotSubmission, received: number
     metadata: { submissionId: sub.id, ref: sub.ref, kind: "success", received: round2(received) },
   });
   const prev = sub.successFee;
-  const successFee: SuccessFee = { requestedAt: prev?.requestedAt ?? null, requests: prev?.requests ?? 0, declared: round2(received), fee, status: prev?.status === "paid" ? "paid" : "requested", reference, paidAt: prev?.paidAt ?? null, via: prev?.via ?? null };
+  // Once something is paid, the running totals stay as they are until the new payment is confirmed. Only the pending reference and the amount asked for change.
+  const paid = prev?.status === "paid";
+  const successFee: SuccessFee = {
+    requestedAt: prev?.requestedAt ?? null, requests: prev?.requests ?? 0,
+    declared: paid ? prev!.declared : round2(received), fee: paid ? prev!.fee : fee,
+    status: paid ? "paid" : "requested", reference, paidAt: prev?.paidAt ?? null, via: prev?.via ?? null, payments: prev?.payments,
+    pending: { declared: round2(received), fee },
+  };
   await deps.store.update(sub.id, { successFee });
   return { url: init.authorizationUrl, reference, fee };
 }
@@ -118,9 +125,18 @@ export async function settlePayment(reference: string, deps: Deps, verified?: Ve
     return out(true, "Payment received.");
   }
   const sf = sub.successFee;
-  if (sf?.status !== "paid" || sf.reference !== v.reference) {
-    const received = typeof v.metadata.received === "number" ? v.metadata.received : Number(v.metadata.received) || sf?.declared || null;
-    const successFee: SuccessFee = { requestedAt: sf?.requestedAt ?? null, requests: sf?.requests ?? 0, declared: received, fee: v.amountKobo / 100, status: "paid", reference: v.reference, paidAt: at, via: "paystack" };
+  // Never trust the browser: what Paystack took must cover the fee we worked out when this payment was started.
+  if (sf?.pending && sf.reference === v.reference && v.amountKobo < toKobo(sf.pending.fee)) return out(false, "The amount paid is less than the fee due. Please contact us.");
+  if (v.amountKobo < MIN_CHARGE * 100) return out(false, "That payment is below the smallest amount we can accept. Please contact us.");
+  const alreadyCounted = !!sf?.payments?.some((x) => x.reference === v.reference) || (sf?.status === "paid" && sf.reference === v.reference && !sf.pending);
+  if (!alreadyCounted) {
+    const received = typeof v.metadata.received === "number" ? v.metadata.received : Number(v.metadata.received) || sf?.pending?.declared || null;
+    // Keep every payment, so two instalments add up instead of the second replacing the first.
+    const history: SuccessFeePayment[] = [...(sf?.payments ?? [])];
+    if (!history.length && sf?.status === "paid" && sf.fee != null) history.push({ reference: sf.reference ?? "earlier", declared: sf.declared, fee: sf.fee, paidAt: sf.paidAt ?? at });
+    if (!history.some((x) => x.reference === v.reference)) history.push({ reference: v.reference, declared: received, fee: v.amountKobo / 100, paidAt: at });
+    const declared = history.some((x) => x.declared == null) ? null : round2(history.reduce((a, x) => a + (x.declared ?? 0), 0));
+    const successFee: SuccessFee = { requestedAt: sf?.requestedAt ?? null, requests: sf?.requests ?? 0, declared, fee: round2(history.reduce((a, x) => a + x.fee, 0)), status: "paid", reference: v.reference, paidAt: at, via: "paystack", payments: history };
     await deps.store.update(sub.id, { successFee });
     sub = { ...sub, successFee };
   }
@@ -168,7 +184,7 @@ export async function requestSuccessFee(id: string, note: string, base: string, 
     throw new Error("The email didn't send: " + (rec.error ?? "unknown error"));
   }
   const prev = sub.successFee;
-  sub.successFee = { requestedAt: rec.at, requests: (prev?.requests ?? 0) + 1, declared: prev?.declared ?? null, fee: prev?.fee ?? null, status: prev?.status === "paid" ? "paid" : "requested", reference: prev?.reference ?? null, paidAt: prev?.paidAt ?? null, via: prev?.via ?? null };
+  sub.successFee = { ...prev, requestedAt: rec.at, requests: (prev?.requests ?? 0) + 1, declared: prev?.declared ?? null, fee: prev?.fee ?? null, status: prev?.status === "paid" ? "paid" : "requested", reference: prev?.reference ?? null, paidAt: prev?.paidAt ?? null, via: prev?.via ?? null };
   await deps.store.update(id, { emails: sub.emails, successFee: sub.successFee });
   return sub;
 }

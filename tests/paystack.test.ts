@@ -216,6 +216,31 @@ describe("success fee", () => {
     expect(saved.successFee).toMatchObject({ status: "paid", declared: 85000, fee: 4250, via: "paystack", requests: 1 });
     expect(saved.payment.status).toBe("paid"); // the start fee record is untouched
   }, 60_000);
+  it("two instalments add up instead of the second replacing the first", async () => {
+    const { store, mailer, sub } = await sentSubmission();
+    const b1 = await beginSuccessPayment(sub, 85000, BASE, { store, mailer });
+    await settlePayment(b1.reference, { store, mailer });
+    const b2 = await beginSuccessPayment((await store.get(sub.id))!, 20000, BASE, { store, mailer });
+    // While the second is still unpaid the totals do not move.
+    expect((await store.get(sub.id))!.successFee).toMatchObject({ status: "paid", declared: 85000, fee: 4250 });
+    await settlePayment(b2.reference, { store, mailer });
+    await settlePayment(b2.reference, { store, mailer }); // the webhook and the return page both call: must not double count
+    const saved = (await store.get(sub.id))!;
+    expect(saved.successFee).toMatchObject({ status: "paid", declared: 105000, fee: 5250 });
+    expect(saved.successFee!.payments).toHaveLength(2);
+    // Staff asking again keeps the history.
+    const again = await requestSuccessFee(sub.id, "", BASE, { store, mailer });
+    expect(again.successFee!.payments).toHaveLength(2);
+  }, 60_000);
+
+  it("does not count a payment that is smaller than the fee we asked for", async () => {
+    const { ps, store, mailer, sub } = await sentSubmission();
+    const b = await beginSuccessPayment(sub, 85000, BASE, { store, mailer });
+    ps.outcome.set(b.reference, { status: "success", amount: 1000 }); // ₦10 instead of ₦4,250
+    const r = await settlePayment(b.reference, { store, mailer });
+    expect(r.ok).toBe(false);
+    expect((await store.get(sub.id))!.successFee?.status).toBe("requested");
+  }, 60_000);
 });
 
 describe("webhook signature", () => {

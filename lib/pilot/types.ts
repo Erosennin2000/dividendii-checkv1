@@ -133,7 +133,13 @@ export interface SuccessFee {
   reference?: string | null;
   paidAt: string | null;
   via?: "paystack" | "manual" | null;
+  /** Every success-fee payment taken, oldest first. `declared` and `fee` above are the running totals. */
+  payments?: SuccessFeePayment[];
+  /** A payment that has been started but not yet confirmed: what they said they received and the fee we asked for. */
+  pending?: { declared: number; fee: number };
 }
+
+export interface SuccessFeePayment { reference: string; declared: number | null; fee: number; paidAt: string }
 
 /** The list view leaves out the heavy parts. */
 export type PilotSummary = Omit<PilotSubmission, "files">;

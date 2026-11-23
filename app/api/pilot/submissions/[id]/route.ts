@@ -48,7 +48,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       // For a success fee that arrived another way (bank transfer, cash). Amount in naira, optional.
       const amt = Number(String(b.amount ?? "").replace(/[,₦\s]/g, ""));
       const prev = sub.successFee;
-      const successFee = { requestedAt: prev?.requestedAt ?? null, requests: prev?.requests ?? 0, declared: prev?.declared ?? null, fee: Number.isFinite(amt) && amt > 0 ? Math.round(amt * 100) / 100 : prev?.fee ?? null, status: "paid" as const, reference: prev?.reference ?? null, paidAt: new Date().toISOString(), via: "manual" as const };
+      const successFee = { ...prev, requestedAt: prev?.requestedAt ?? null, requests: prev?.requests ?? 0, declared: prev?.declared ?? null, fee: Number.isFinite(amt) && amt > 0 ? Math.round(amt * 100) / 100 : prev?.fee ?? null, status: "paid" as const, reference: prev?.reference ?? null, paidAt: new Date().toISOString(), via: "manual" as const };
       await store.update(sub.id, { successFee });
       return NextResponse.json({ submission: { ...sub, successFee } });
     }
