@@ -1,0 +1,5 @@
+SEC portal box: adds a short box at the top of "Where do you hold shares?" with a link (new tab) to https://eportal.sec.gov.ng/non-mandated.
+Replace these 2 files in the Check app, then redeploy:
+  app/pilot/page.tsx
+  app/globals.css
+NOTE: these two files are the full current versions (they already include everything from the earlier Check zip), so use this zip on top of that one.

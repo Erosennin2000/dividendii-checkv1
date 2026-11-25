@@ -489,3 +489,7 @@ textarea.input { min-height: 220px; line-height: 1.55; resize: vertical; }
 .stepnote .chip-time, .stepnote .chip-level { border: 1px solid var(--rule-strong); border-radius: 999px; padding: 2px 10px; color: var(--ink-2); background: var(--surface); }
 .stepnote .chip-level { background: var(--gold-bg); border-color: var(--gold-light); color: var(--gold-deep); }
 .why-more { color: var(--navy); text-decoration: underline; font-size: 12.5px; padding: 2px 0; }
+
+/* Pointer to the official SEC unclaimed-dividends search, at the top of the "Where do you hold shares?" step. */
+.sec-box { margin: 0 0 16px; padding: 10px 12px; border: 1px solid var(--gold-light); background: var(--gold-bg); border-radius: 8px; color: var(--ink-2); }
+.sec-box a { font-weight: 600; }

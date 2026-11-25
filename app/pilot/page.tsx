@@ -304,6 +304,7 @@ export default function PilotPage() {
           <h1>Where do you hold shares?</h1>
           <StepNote k={2} />
           <p className="lede">Type a company&apos;s name and we&apos;ll find its registrar for you. Or, if you already know your registrar, choose it below and tick your companies.</p>
+          <p className="tiny sec-box">Not sure which companies owe you? Search your name on the official SEC unclaimed-dividends portal (<a href="https://eportal.sec.gov.ng/non-mandated" target="_blank" rel="noopener noreferrer">Non-Mandated Dividends</a>).</p>
           <CompanySearch companies={searchable} isHeld={isHeld} onAdd={addFound} />
           <p className="tiny" style={{ margin: "18px 0 10px", fontWeight: 600 }}>Or choose the registrar yourself</p>
           <SelectField why="registrar" label="Registrar" value={regName} onChange={(v) => { setRegName(v); }} options={cfg.registrars.map((r) => r.name)} placeholder="Choose a registrar" />
