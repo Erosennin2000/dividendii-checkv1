@@ -48,3 +48,10 @@ alter table public.pilot_leads       enable row level security;
 insert into storage.buckets (id, name, public)
 values ('pilot-submissions', 'pilot-submissions', false)
 on conflict (id) do nothing;
+
+-- Newer Supabase projects do not give the server key access to tables you create yourself.
+-- Without these lines the app fails with "permission denied for table ...". Safe to run again.
+grant usage on schema public to service_role;
+grant all on table public.pilot_submissions, public.pilot_leads, public.pilot_settings, public.pilot_feedback to service_role;
+-- The public keys (anon, signed-in users) get nothing on these tables.
+revoke all on table public.pilot_submissions, public.pilot_leads, public.pilot_settings, public.pilot_feedback from anon, authenticated;

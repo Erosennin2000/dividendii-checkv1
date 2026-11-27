@@ -30,10 +30,18 @@ const securityHeaders = [
   { key: "Strict-Transport-Security", value: "max-age=31536000" },
 ];
 
+// Staff and account pages are never listed by search engines. A test site (set NOINDEX=1 in its Vercel variables) is hidden entirely.
+// Do NOT set NOINDEX on the live project: it would hide the real Check page from search too.
+const noindex = [{ key: "X-Robots-Tag", value: "noindex, nofollow" }];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: [...securityHeaders, ...(process.env.NOINDEX === "1" ? noindex : [])] },
+      { source: "/admin/:path*", headers: noindex },
+      { source: "/account/:path*", headers: noindex },
+    ];
   },
   // The site serves this app under www.dividendii.com/check (see the main site's vercel.json).
   basePath: "/check",

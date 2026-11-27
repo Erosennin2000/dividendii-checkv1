@@ -1,0 +1,18 @@
+Dividendii Check: update 27 Nov 2026 (v1.2)
+Upload these files into the Check app repo (same folders), then redeploy on Vercel. They are the FULL current versions and include
+the SEC box and the pilot.sql permission fix from earlier, so use this zip on top of the 23 Nov Check zip.
+
+What changed
+1. Form details auto-clear after 30 minutes with no activity (tab-only storage, as before). A short note explains why.
+2. "Start again for someone else" button on steps 2-4 (asks to confirm, clears everything).
+3. The BVN is no longer kept in the browser's saved draft. After a refresh the person retypes it.
+4. Signature: new "Or upload a photo of your signature" button. Paper becomes clear, ink becomes navy, same look as a drawn one.
+5. Staff and account pages send a "noindex" header. Set NOINDEX=1 in the TEST project's Vercel variables to hide the whole test site from search (then Redeploy). NEVER set it on the live project.
+6. SEC portal box (step 2) and supabase/pilot.sql with the service_role permission lines (already sent; included again).
+
+Files
+app/pilot/page.tsx, app/pilot/paid/page.tsx, app/globals.css, components/SignaturePad.tsx,
+lib/pilot/draft.ts (new), lib/signatureClean.ts (new), next.config.mjs, tests/signatureDraft.test.ts (new), supabase/pilot.sql
+
+Checked: type check clean, 139 tests pass, production build OK, noindex header confirmed on /check/admin and (with NOINDEX=1) on every page.
+Not changed: robots.txt on the server (see chat: please send me the live robots.php first).

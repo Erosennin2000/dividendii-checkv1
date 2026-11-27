@@ -23,7 +23,7 @@ export default function PaidPage() {
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data?.error ?? "We couldn't confirm that payment.");
-        if ((data as Outcome).ok) { try { sessionStorage.removeItem("dividendii-check-draft"); } catch { /* ignore */ } }
+        if ((data as Outcome).ok) { try { sessionStorage.removeItem("dividendii-check-draft"); sessionStorage.removeItem("dividendii-check-draft-seen"); } catch { /* ignore */ } }
         setOut(data as Outcome);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "We couldn't confirm that payment."));

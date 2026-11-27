@@ -15,6 +15,7 @@ import { naira, successFeeParts } from "@/lib/domain/fees";
 import { emptyProfile } from "@/lib/forms/registry";
 import type { FormProfile } from "@/lib/forms/types";
 import { resizeImage } from "@/lib/image";
+import { DRAFT_TTL_MS, draftExpired, draftSafeProfile } from "@/lib/pilot/draft";
 import { DEBIT_RATE, PAY_AHEAD_PER_COMPANY, PILOT_COMPANIES, PILOT_REGISTRARS, companiesFor, type PilotCompany, type PilotRegistrarId } from "@/lib/pilot/config";
 import type { PaymentMethod, PilotInput } from "@/lib/pilot/types";
 import { MAX_VARIANTS, pilotProblemsByStep, type PilotStep } from "@/lib/pilot/validate";
@@ -23,6 +24,9 @@ import { errorMessage } from "@/lib/util";
 
 type Held = { registrarId: PilotRegistrarId; company: string };
 const DRAFT_KEY = "dividendii-check-draft";
+const DRAFT_SEEN_KEY = "dividendii-check-draft-seen"; // when the person last did anything on this form
+const DRAFT_NOTE_KEY = "dividendii-check-draft-note"; // shown once after the details were cleared
+const wipeDraft = () => { try { sessionStorage.removeItem(DRAFT_KEY); sessionStorage.removeItem(DRAFT_SEEN_KEY); } catch { /* ignore */ } };
 interface Draft { v: 1; step: PilotStep; profile: FormProfile; variants: string[]; held: Held[]; at: typeof emptyAt; regName: string; lead: { id: string; demo: boolean } | null; token: string | null; bankOther: boolean }
 interface Result {
   id: string; ref: string; sendStatus: "queued" | "sending" | "sent" | "partial" | "failed"; mode: "test" | "live";
@@ -85,9 +89,33 @@ export default function PilotPage() {
   // Typed answers survive Back, Forward, a reload and a return from the payment page. They live in this tab only (sessionStorage), and never include the photo, signature or the ticks for consent. The draft is wiped as soon as the forms are saved.
   const [ready, setReady] = useState(false);
   const [bankOther, setBankOther] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  // Clearing = wipe the tab's saved draft, then reload. A reload resets every field, the photo, the signature and the ticks in one go.
+  const startAgain = (message: string) => { wipeDraft(); try { sessionStorage.setItem(DRAFT_NOTE_KEY, message); } catch { /* ignore */ } window.location.reload(); };
+  // 30 minutes without a key press, tap or scroll: clear everything. Returning from the payment page is well inside that.
+  useEffect(() => {
+    let last = Date.now();
+    let stamped = 0;
+    const touch = () => {
+      last = Date.now();
+      if (last - stamped > 10_000) { stamped = last; try { sessionStorage.setItem(DRAFT_SEEN_KEY, String(last)); } catch { /* ignore */ } }
+    };
+    const evs = ["keydown", "pointerdown", "scroll", "input"] as const;
+    evs.forEach((e) => window.addEventListener(e, touch, { passive: true }));
+    touch();
+    const t = window.setInterval(() => {
+      if (draftExpired(last, Date.now(), DRAFT_TTL_MS)) startAgain("We cleared your details after 30 minutes without activity, to keep them safe. Please start again.");
+    }, 30_000);
+    return () => { evs.forEach((e) => window.removeEventListener(e, touch)); window.clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     try {
-      const d = JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? "null") as Draft | null;
+      const seen = Number(sessionStorage.getItem(DRAFT_SEEN_KEY));
+      let d = JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? "null") as Draft | null;
+      if (d && draftExpired(seen || null)) { wipeDraft(); d = null; setNote("We cleared your details after a while away, to keep them safe. Please start again."); }
+      const clearedNote = sessionStorage.getItem(DRAFT_NOTE_KEY);
+      if (clearedNote) { sessionStorage.removeItem(DRAFT_NOTE_KEY); setNote(clearedNote); }
       if (d && d.v === 1) {
         setProfile({ ...emptyProfile(), ...d.profile }); setVariants(d.variants ?? []); setHeld(d.held ?? []); setAt({ ...emptyAt, ...d.at });
         setRegName(d.regName ?? ""); setLead(d.lead ?? null); setToken(d.token ?? null); setBankOther(!!d.bankOther);
@@ -104,7 +132,7 @@ export default function PilotPage() {
   useEffect(() => {
     if (!ready) return;
     try {
-      const d: Draft = { v: 1, step, profile, variants, held, at, regName, lead, token, bankOther };
+      const d: Draft = { v: 1, step, profile: draftSafeProfile(profile), variants, held, at, regName, lead, token, bankOther };
       sessionStorage.setItem(DRAFT_KEY, JSON.stringify(d));
     } catch { /* storage full or blocked */ }
   }, [ready, step, profile, variants, held, at, regName, lead, token, bankOther]);
@@ -173,14 +201,14 @@ export default function PilotPage() {
           const p = await post<{ url?: string; paid?: boolean }>("/api/pilot/pay", { id: r.id, token });
           if (p.url) { window.location.assign(p.url); return; } // keep the spinner while the browser leaves
         } catch {
-          try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+          wipeDraft();
           setResult({ ...r, payLater: true });
           window.scrollTo({ top: 0, behavior: "smooth" });
           setBusy(false);
           return;
         }
       }
-      try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+      wipeDraft();
       setResult(r); // the reference shows at once; the emails go out behind it
       window.scrollTo({ top: 0, behavior: "smooth" });
       if (r.sendStatus === "queued") {
@@ -225,6 +253,12 @@ export default function PilotPage() {
 
   return (
     <div className="pwrap">
+      {note && <p className="tiny sec-box" role="status">{note}</p>}
+      {ready && (step > 1 || !!lead) && (
+        <div className="btn-row" style={{ justifyContent: "flex-end", marginBottom: 8 }}>
+          <button type="button" className="btn quiet sm" onClick={() => { if (window.confirm("Clear everything you have typed and start again for someone else?")) startAgain("Your details were cleared. You can start again."); }}>Start again for someone else</button>
+        </div>
+      )}
       <ol className="pstepper" aria-label="Progress">
         {STEPS.map((n, i) => (
           <li key={n} data-s={i + 1 < step ? "done" : i + 1 === step ? "now" : "todo"} aria-current={i + 1 === step ? "step" : undefined}>
